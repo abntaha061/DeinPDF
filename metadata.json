@@ -1,0 +1,6 @@
+{
+  "name": "قارئ PDF محمد",
+  "description": "تطبيق قارئ PDF احترافي يدعم العربية والألمانية والنطق والترجمة وتلخيص الذكاء الاصطناعي",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
