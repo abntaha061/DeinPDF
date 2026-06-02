@@ -11,6 +11,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.model.*
+import com.example.data.model.Annotation as PdfAnnotation
 import com.example.data.repository.PdfRepository
 import com.example.ui.reader.ReaderTool
 import com.example.ui.reader.TranslationResult
@@ -89,8 +90,8 @@ class ReaderViewModel(
     val showBookmarkDialog: StateFlow<Boolean> = _showBookmarkDialog.asStateFlow()
 
     // ===== Drawing / Notes Annotations =====
-    private val _annotations = MutableStateFlow<List<Annotation>>(emptyList())
-    val annotations: StateFlow<List<Annotation>> = _annotations.asStateFlow()
+    private val _annotations = MutableStateFlow<List<PdfAnnotation>>(emptyList())
+    val annotations: StateFlow<List<PdfAnnotation>> = _annotations.asStateFlow()
 
     // ===== Text To Speech (TTS) Playback state =====
     private val _isTtsPlaying = MutableStateFlow(false)
@@ -139,8 +140,30 @@ class ReaderViewModel(
             }
 
             // Bind bookmarks list
-            repository.getBookmarks(id).collect { _bookmarks.value = it }
+            launch {
+                repository.getBookmarks(id).collect { _bookmarks.value = it }
+            }
+            // Bind annotations list
+            launch {
+                repository.getAllAnnotations(id).collect { _annotations.value = it }
+            }
         }
+    }
+
+    fun addAnnotation(annotation: PdfAnnotation) {
+        viewModelScope.launch {
+            repository.addAnnotation(annotation)
+        }
+    }
+
+    fun deleteAnnotation(annotation: PdfAnnotation) {
+        viewModelScope.launch {
+            repository.deleteAnnotation(annotation)
+        }
+    }
+
+    fun showToolbar(visible: Boolean) {
+        _isToolbarVisible.value = visible
     }
 
     fun setPage(page: Int) {

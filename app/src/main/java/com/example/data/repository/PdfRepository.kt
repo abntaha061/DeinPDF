@@ -14,6 +14,8 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
 
+import android.os.ParcelFileDescriptor
+
 class PdfRepository(
     private val context: Context,
     private val db: AppDatabase
@@ -171,42 +173,75 @@ class PdfRepository(
     }
 
     // ========== PDF Utilities ==========
-    suspend fun getPdfPageCount(uri: Uri): Int = withContext(Dispatchers.IO) {
+    private suspend fun copyUriToLocalFile(uri: Uri): File? = withContext(Dispatchers.IO) {
         try {
-            val pfd = context.contentResolver.openFileDescriptor(uri, "r") ?: return@withContext 0
-            val renderer = PdfRenderer(pfd)
-            val count = renderer.pageCount
-            renderer.close()
-            pfd.close()
-            count
+            val tmpFile = File(context.cacheDir, "tmp_pdf_${System.currentTimeMillis()}.pdf")
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                tmpFile.outputStream().use { output -> input.copyTo(output) }
+            }
+            if (tmpFile.exists() && tmpFile.length() > 0) tmpFile else null
         } catch (e: Exception) {
+            null
+        }
+    }
+
+    suspend fun getPdfPageCount(uri: Uri): Int = withContext(Dispatchers.IO) {
+        var pfd: ParcelFileDescriptor? = null
+        var renderer: PdfRenderer? = null
+        try {
+            pfd = try {
+                context.contentResolver.openFileDescriptor(uri, "r")
+            } catch (e: Exception) {
+                null
+            }
+            if (pfd == null) {
+                val localFile = copyUriToLocalFile(uri) ?: return@withContext 0
+                pfd = ParcelFileDescriptor.open(localFile, ParcelFileDescriptor.MODE_READ_ONLY)
+            }
+            renderer = PdfRenderer(pfd!!)
+            renderer.pageCount
+        } catch (e: Exception) {
+            e.printStackTrace()
             0
+        } finally {
+            try { renderer?.close() } catch (_: Exception) {}
+            try { pfd?.close() } catch (_: Exception) {}
         }
     }
 
     suspend fun renderPdfPage(uri: Uri, pageIndex: Int, width: Int): Bitmap? =
         withContext(Dispatchers.IO) {
+            var pfd: ParcelFileDescriptor? = null
+            var renderer: PdfRenderer? = null
             try {
-                val pfd = context.contentResolver.openFileDescriptor(uri, "r") ?: return@withContext null
-                val renderer = PdfRenderer(pfd)
-                if (pageIndex >= renderer.pageCount) {
-                    renderer.close()
-                    pfd.close()
+                pfd = try {
+                    context.contentResolver.openFileDescriptor(uri, "r")
+                } catch (e: Exception) {
+                    null
+                }
+                if (pfd == null) {
+                    val localFile = copyUriToLocalFile(uri) ?: return@withContext null
+                    pfd = ParcelFileDescriptor.open(localFile, ParcelFileDescriptor.MODE_READ_ONLY)
+                }
+                renderer = PdfRenderer(pfd!!)
+                if (pageIndex < 0 || pageIndex >= renderer.pageCount) {
                     return@withContext null
                 }
                 val page = renderer.openPage(pageIndex)
-                val ratio = width.toFloat() / page.width
-                val height = (page.height * ratio).toInt().coerceAtLeast(1)
-                val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                val scale = width.toFloat() / page.width.coerceAtLeast(1)
+                val height = (page.height * scale).toInt().coerceAtLeast(1)
+                val bitmapWidth = width.coerceAtLeast(1)
+                val bitmap = Bitmap.createBitmap(bitmapWidth, height, Bitmap.Config.ARGB_8888)
                 bitmap.eraseColor(android.graphics.Color.WHITE)
                 page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                 page.close()
-                renderer.close()
-                pfd.close()
                 bitmap
             } catch (e: Exception) {
                 e.printStackTrace()
                 null
+            } finally {
+                try { renderer?.close() } catch (_: Exception) {}
+                try { pfd?.close() } catch (_: Exception) {}
             }
         }
 
