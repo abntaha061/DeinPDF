@@ -24,12 +24,18 @@ class TtsService : Service() {
 
     private var tts: TextToSpeech? = null
     private var isPlaying = false
+    private var ttsReady = false
+    private var pendingText: String? = null
+    private var pendingLang: String? = null
+    private var pendingSpeed: Float? = null
+    private var pendingStartId: Int? = null
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
         tts = TextToSpeech(this) { status ->
             if (status == TextToSpeech.SUCCESS) {
+                ttsReady = true
                 tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                     override fun onStart(utteranceId: String?) {
                         isPlaying = true
@@ -50,7 +56,30 @@ class TtsService : Service() {
                         stopSelf()
                     }
                 })
+                // Speak pending if any
+                pendingText?.let { text ->
+                    speakInternal(text, pendingLang ?: "de", pendingSpeed ?: 1.0f, pendingStartId ?: 0)
+                    pendingText = null
+                    pendingLang = null
+                    pendingSpeed = null
+                    pendingStartId = null
+                }
             }
+        }
+    }
+
+    private fun speakInternal(text: String, lang: String, speed: Float, startId: Int) {
+        tts?.let { engine ->
+            engine.language = when(lang) {
+                "de" -> Locale.GERMAN
+                "ar" -> Locale.forLanguageTag("ar")
+                else -> Locale.getDefault()
+            }
+            engine.setSpeechRate(speed)
+            val params = android.os.Bundle().apply {
+                putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, "tts_$startId")
+            }
+            engine.speak(text, TextToSpeech.QUEUE_FLUSH, params, "tts_$startId")
         }
     }
 
@@ -71,17 +100,13 @@ class TtsService : Service() {
                     startForeground(NOTIFICATION_ID, buildNotification("جاري تحضير النطق..."))
                 }
 
-                tts?.let { engine ->
-                    engine.language = when(lang) {
-                        "de" -> Locale.GERMAN
-                        "ar" -> Locale.forLanguageTag("ar")
-                        else -> Locale.getDefault()
-                    }
-                    engine.setSpeechRate(speed)
-                    val params = android.os.Bundle().apply {
-                        putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, "tts_$startId")
-                    }
-                    engine.speak(text, TextToSpeech.QUEUE_FLUSH, params, "tts_$startId")
+                if (ttsReady) {
+                    speakInternal(text, lang, speed, startId)
+                } else {
+                    pendingText = text
+                    pendingLang = lang
+                    pendingSpeed = speed
+                    pendingStartId = startId
                 }
             }
             ACTION_STOP -> {

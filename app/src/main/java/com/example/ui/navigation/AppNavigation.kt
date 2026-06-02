@@ -15,6 +15,13 @@ import com.example.ui.tools.PdfToolsScreen
 import com.example.ui.vocabulary.VocabularyScreen
 import com.example.viewmodel.MainViewModel
 
+fun safeEncodeUri(uri: Uri): String {
+    return android.util.Base64.encodeToString(
+        uri.toString().toByteArray(Charsets.UTF_8),
+        android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP
+    )
+}
+
 sealed class Screen(val route: String) {
     object Onboarding  : Screen("onboarding")
     object Home        : Screen("home")
@@ -54,7 +61,7 @@ fun AppNavigation(
         composable(Screen.Home.route) {
             HomeScreen(
                 onOpenPdf = { uri, pdfId ->
-                    navController.navigate(Screen.Reader.createRoute(Uri.encode(uri.toString()), pdfId))
+                    navController.navigate(Screen.Reader.createRoute(safeEncodeUri(uri), pdfId))
                 },
                 onNavigateToLibrary   = { navController.navigate(Screen.Library.route) },
                 onNavigateToBookmarks = { navController.navigate(Screen.Bookmarks.route) },
@@ -69,7 +76,7 @@ fun AppNavigation(
         composable(Screen.Library.route) {
             LibraryScreen(
                 onOpenPdf = { uri, pdfId ->
-                    navController.navigate(Screen.Reader.createRoute(Uri.encode(uri.toString()), pdfId))
+                    navController.navigate(Screen.Reader.createRoute(safeEncodeUri(uri), pdfId))
                 },
                 onBack = { navController.popBackStack() },
                 viewModel = viewModel
@@ -79,7 +86,7 @@ fun AppNavigation(
         composable(Screen.Bookmarks.route) {
             BookmarksScreen(
                 onOpenPdf = { uri, pdfId ->
-                    navController.navigate(Screen.Reader.createRoute(Uri.encode(uri.toString()), pdfId))
+                    navController.navigate(Screen.Reader.createRoute(safeEncodeUri(uri), pdfId))
                 },
                 onBack = { navController.popBackStack() },
                 viewModel = viewModel
@@ -123,14 +130,18 @@ fun AppNavigation(
             val encodedUri = backStack.arguments?.getString("encodedUri") ?: ""
             val pdfId      = backStack.arguments?.getLong("pdfId") ?: 0L
             val uri = try {
-                val parsed = Uri.parse(encodedUri)
-                if (parsed.scheme != null && (parsed.scheme == "content" || parsed.scheme == "file")) {
-                    parsed
-                } else {
+                if (encodedUri.startsWith("content%3A") || encodedUri.startsWith("content://") || encodedUri.startsWith("file://")) {
                     Uri.parse(Uri.decode(encodedUri))
+                } else {
+                    val decodedBytes = android.util.Base64.decode(encodedUri, android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP)
+                    Uri.parse(String(decodedBytes, Charsets.UTF_8))
                 }
             } catch (e: Exception) {
-                Uri.parse(Uri.decode(encodedUri))
+                try {
+                    Uri.parse(Uri.decode(encodedUri))
+                } catch (e2: Exception) {
+                    Uri.parse(encodedUri)
+                }
             }
             ReaderScreen(
                 pdfUri  = uri,
@@ -143,7 +154,7 @@ fun AppNavigation(
 
     LaunchedEffect(intentUri) {
         intentUri?.let { uri ->
-            navController.navigate(Screen.Reader.createRoute(Uri.encode(uri.toString()), 0L))
+            navController.navigate(Screen.Reader.createRoute(safeEncodeUri(uri), 0L))
         }
     }
 }

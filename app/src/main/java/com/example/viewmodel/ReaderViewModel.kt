@@ -360,20 +360,21 @@ class ReaderViewModel(
         val targetLocale = if (hasArabic) Locale("ar") else Locale.GERMAN
 
         if (tts == null) {
-            var tempTts: TextToSpeech? = null
-            tempTts = TextToSpeech(context) { status ->
+            val listener = TextToSpeech.OnInitListener { status ->
                 if (status == TextToSpeech.SUCCESS) {
-                    tempTts?.language = targetLocale
-                    tempTts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                        override fun onStart(utteranceId: String?) { _isTtsPlaying.value = true }
-                        override fun onDone(utteranceId: String?) { _isTtsPlaying.value = false }
-                        override fun onError(utteranceId: String?) { _isTtsPlaying.value = false }
-                    })
-                    tempTts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "reader_tts")
-                    _isTtsPlaying.value = true
+                    tts?.let { engine ->
+                        engine.language = targetLocale
+                        engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                            override fun onStart(utteranceId: String?) { _isTtsPlaying.value = true }
+                            override fun onDone(utteranceId: String?) { _isTtsPlaying.value = false }
+                            override fun onError(utteranceId: String?) { _isTtsPlaying.value = false }
+                        })
+                        engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "reader_tts")
+                        _isTtsPlaying.value = true
+                    }
                 }
             }
-            tts = tempTts
+            tts = TextToSpeech(context, listener)
         } else {
             tts?.language = targetLocale
             tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "reader_tts")
