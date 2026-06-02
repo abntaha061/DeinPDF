@@ -122,7 +122,16 @@ fun AppNavigation(
         ) { backStack ->
             val encodedUri = backStack.arguments?.getString("encodedUri") ?: ""
             val pdfId      = backStack.arguments?.getLong("pdfId") ?: 0L
-            val uri        = Uri.parse(Uri.decode(encodedUri))
+            val uri = try {
+                val parsed = Uri.parse(encodedUri)
+                if (parsed.scheme != null && (parsed.scheme == "content" || parsed.scheme == "file")) {
+                    parsed
+                } else {
+                    Uri.parse(Uri.decode(encodedUri))
+                }
+            } catch (e: Exception) {
+                Uri.parse(Uri.decode(encodedUri))
+            }
             ReaderScreen(
                 pdfUri  = uri,
                 pdfId   = pdfId,

@@ -186,41 +186,68 @@ class PdfRepository(
     }
 
     private fun openPfdForUri(uri: Uri): ParcelFileDescriptor? {
-        // First try to open via content resolver in a safe try-catch
+        // 1. Direct content resolver openFileDescriptor attempt
         try {
             val pfd = context.contentResolver.openFileDescriptor(uri, "r")
             if (pfd != null) return pfd
         } catch (_: Exception) {}
 
-        // Fallback for direct local file paths, e.g. file:// scheme or plain path string
+        // 2. Fixed content resolver attempt (dealing with SAF document id colon double-decoding issues)
+        var fixedUri: Uri? = null
+        try {
+            val uriString = uri.toString()
+            if (uriString.startsWith("content://")) {
+                if (uriString.contains("document/")) {
+                    val docPart = uriString.substringAfter("document/")
+                    if (docPart.contains(":")) {
+                        // Re-encode colons in the document ID portion
+                        val fixedDocPart = docPart.replace(":", "%3A")
+                        val fixedString = uriString.substringBefore("document/") + "document/" + fixedDocPart
+                        val fUri = Uri.parse(fixedString)
+                        val pfd = context.contentResolver.openFileDescriptor(fUri, "r")
+                        if (pfd != null) {
+                            fixedUri = fUri
+                            return pfd
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
+        // 3. Fallback for direct local file paths (e.g. file:// scheme or direct absolute paths)
         try {
             val path = uri.path
             if (path != null) {
                 val file = java.io.File(path)
-                if (file.exists()) {
+                if (file.exists() && file.isFile) {
                     val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
                     if (pfd != null) return pfd
                 }
             }
-            // Try raw uri string as path fallback
             val rawPath = uri.toString()
-            val fileRaw = java.io.File(rawPath)
-            if (fileRaw.exists()) {
-                val pfd = ParcelFileDescriptor.open(fileRaw, ParcelFileDescriptor.MODE_READ_ONLY)
-                if (pfd != null) return pfd
+            if (rawPath.startsWith("/") || rawPath.startsWith("file://")) {
+                val cleanPath = rawPath.replace("file://", "")
+                val fileRaw = java.io.File(cleanPath)
+                if (fileRaw.exists() && fileRaw.isFile) {
+                    val pfd = ParcelFileDescriptor.open(fileRaw, ParcelFileDescriptor.MODE_READ_ONLY)
+                    if (pfd != null) return pfd
+                }
             }
         } catch (_: Exception) {}
 
-        // Ultimate fallback: copy content to a local cache file and open it
-        try {
-            val tmpFile = java.io.File(context.cacheDir, "tmp_pdf_resolver_${System.currentTimeMillis()}.pdf")
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                tmpFile.outputStream().use { output -> input.copyTo(output) }
-            }
-            if (tmpFile.exists() && tmpFile.length() > 0) {
-                return ParcelFileDescriptor.open(tmpFile, ParcelFileDescriptor.MODE_READ_ONLY)
-            }
-        } catch (_: Exception) {}
+        // 4. Copied content cache-file approach using openInputStream (tries original then fixed URI)
+        for (targetUri in listOfNotNull(uri, fixedUri)) {
+            try {
+                val tmpFile = java.io.File(context.cacheDir, "tmp_pdf_resolver_${System.currentTimeMillis()}.pdf")
+                context.contentResolver.openInputStream(targetUri)?.use { input ->
+                    tmpFile.outputStream().use { output -> input.copyTo(output) }
+                }
+                if (tmpFile.exists() && tmpFile.length() > 0) {
+                    val pfd = ParcelFileDescriptor.open(tmpFile, ParcelFileDescriptor.MODE_READ_ONLY)
+                    if (pfd != null) return pfd
+                }
+            } catch (_: Exception) {}
+        }
 
         return null
     }
