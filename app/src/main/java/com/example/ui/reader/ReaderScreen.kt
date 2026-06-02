@@ -1072,58 +1072,63 @@ fun PdfPageRenderItem(
                                     val isAnyPressed = changes.any { it.pressed }
                                     if (!isAnyPressed) break
 
-                                    val canceled = changes.any { it.isConsumed }
-                                    if (canceled) {
+                                    // If any pointer was consumed by an outer layer (like LazyColumn scroll),
+                                    // we mark tapEventDetected as false and don't do any custom action on this page.
+                                    // But we DO NOT break the loop! This prevents the tight infinite loop
+                                    // while the finger is still held down during scrolling or other consumed gestures.
+                                    val isEventAlreadyConsumed = changes.any { it.isConsumed }
+                                    if (isEventAlreadyConsumed) {
                                         tapEventDetected = false
-                                        break
                                     }
 
-                                    if (isMultiTouch || pageScale > 1f) {
-                                        val zoomChange = event.calculateZoom()
-                                        val panChange = event.calculatePan()
-                                        val centroid = event.calculateCentroid(useCurrent = false)
+                                    if (!isEventAlreadyConsumed) {
+                                        if (isMultiTouch || pageScale > 1f) {
+                                            val zoomChange = event.calculateZoom()
+                                            val panChange = event.calculatePan()
+                                            val centroid = event.calculateCentroid(useCurrent = false)
 
-                                        if (!pastTouchSlop) {
+                                            if (!pastTouchSlop) {
+                                                accumulatedPan += panChange
+                                                accumulatedZoom *= zoomChange
+                                                val panMotion = accumulatedPan.getDistance()
+                                                val zoomMotion = kotlin.math.abs(1f - accumulatedZoom) * event.calculateCentroidSize(useCurrent = false)
+
+                                                if (panMotion > touchSlop || zoomMotion > touchSlop) {
+                                                    pastTouchSlop = true
+                                                }
+                                            }
+
+                                            if (pastTouchSlop) {
+                                                val oldScale = pageScale
+                                                val newScale = (pageScale * zoomChange).coerceIn(1f, 4f)
+                                                val effectiveZoom = newScale / oldScale
+
+                                                if (newScale > 1f) {
+                                                    val centroidInAspected = centroid - Offset(containerSize.width / 2f, containerSize.height / 2f)
+                                                    pageOffset = (pageOffset - centroidInAspected) * effectiveZoom + centroidInAspected + panChange
+
+                                                    val maxX = (containerSize.width * (newScale - 1f)) / 2f
+                                                    val maxY = (containerSize.height * (newScale - 1f)) / 2f
+                                                    pageOffset = Offset(
+                                                        x = pageOffset.x.coerceIn(-maxX, maxX),
+                                                        y = pageOffset.y.coerceIn(-maxY, maxY)
+                                                    )
+                                                } else {
+                                                    pageOffset = Offset.Zero
+                                                }
+                                                pageScale = newScale
+
+                                                changes.forEach {
+                                                    it.consume()
+                                                }
+                                                tapEventDetected = false
+                                            }
+                                        } else {
+                                            val panChange = event.calculatePan()
                                             accumulatedPan += panChange
-                                            accumulatedZoom *= zoomChange
-                                            val panMotion = accumulatedPan.getDistance()
-                                            val zoomMotion = kotlin.math.abs(1f - accumulatedZoom) * event.calculateCentroidSize(useCurrent = false)
-
-                                            if (panMotion > touchSlop || zoomMotion > touchSlop) {
-                                                pastTouchSlop = true
+                                            if (accumulatedPan.getDistance() > touchSlop) {
+                                                tapEventDetected = false
                                             }
-                                        }
-
-                                        if (pastTouchSlop) {
-                                            val oldScale = pageScale
-                                            val newScale = (pageScale * zoomChange).coerceIn(1f, 4f)
-                                            val effectiveZoom = newScale / oldScale
-
-                                            if (newScale > 1f) {
-                                                val centroidInAspected = centroid - Offset(containerSize.width / 2f, containerSize.height / 2f)
-                                                pageOffset = (pageOffset - centroidInAspected) * effectiveZoom + centroidInAspected + panChange
-
-                                                val maxX = (containerSize.width * (newScale - 1f)) / 2f
-                                                val maxY = (containerSize.height * (newScale - 1f)) / 2f
-                                                pageOffset = Offset(
-                                                    x = pageOffset.x.coerceIn(-maxX, maxX),
-                                                    y = pageOffset.y.coerceIn(-maxY, maxY)
-                                                )
-                                            } else {
-                                                pageOffset = Offset.Zero
-                                            }
-                                            pageScale = newScale
-
-                                            changes.forEach {
-                                                it.consume()
-                                            }
-                                            tapEventDetected = false
-                                        }
-                                    } else {
-                                        val panChange = event.calculatePan()
-                                        accumulatedPan += panChange
-                                        if (accumulatedPan.getDistance() > touchSlop) {
-                                            tapEventDetected = false
                                         }
                                     }
                                 } while (event.changes.any { it.pressed })
