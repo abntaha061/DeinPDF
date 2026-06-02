@@ -155,6 +155,7 @@ fun ReaderScreen(
     var docScale by remember { mutableStateOf(1f) }
     var docOffset by remember { mutableStateOf(Offset.Zero) }
     var containerSize by remember { mutableStateOf(IntSize.Zero) }
+    var isGestureActive by remember { mutableStateOf(false) }
 
     val animatedDocScale by animateFloatAsState(
         targetValue = docScale,
@@ -171,6 +172,33 @@ fun ReaderScreen(
         animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
         label = "docOffsetY"
     )
+
+    val currentScale = if (isGestureActive) docScale else animatedDocScale
+    val currentOffsetX = if (isGestureActive) docOffset.x else animatedDocOffsetX
+    val currentOffsetY = if (isGestureActive) docOffset.y else animatedDocOffsetY
+
+    val onDoubleTapZoomPage: (Offset, IntSize) -> Unit = { tapOffset, pageSize ->
+        if (docScale > 1.2f) {
+            docScale = 1f
+            docOffset = Offset.Zero
+        } else {
+            docScale = 2.2f
+            val width = containerSize.width.coerceAtLeast(1)
+            val height = containerSize.height.coerceAtLeast(1)
+            
+            val tapInContainerX = (tapOffset.x / pageSize.width.coerceAtLeast(1)) * width
+            val tapInContainerY = (tapOffset.y / pageSize.height.coerceAtLeast(1)) * height
+            
+            val centroidInAspected = Offset(tapInContainerX, tapInContainerY) - Offset(width / 2f, height / 2f)
+            val maxX = (width * 1.2f) / 2f
+            val maxY = (height * 1.2f) / 2f
+            
+            docOffset = Offset(
+                x = (-centroidInAspected.x * 1.2f).coerceIn(-maxX, maxX),
+                y = (-centroidInAspected.y * 1.2f).coerceIn(-maxY, maxY)
+            )
+        }
+    }
 
     // Synchronize scroll gestures to current page index active
     LaunchedEffect(lazyListState.firstVisibleItemIndex, lazyListState.isScrollInProgress) {
@@ -497,7 +525,9 @@ fun ReaderScreen(
                         .onSizeChanged { containerSize = it }
                         .pointerInput(docScale) {
                             awaitEachGesture {
-                                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                                try {
+                                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                                    isGestureActive = true
                                 var pastTouchSlop = false
                                 val touchSlop = viewConfiguration.touchSlop
                                 var accumulatedPan = Offset.Zero
@@ -582,13 +612,16 @@ fun ReaderScreen(
                                         break
                                     }
                                 }
+                                } finally {
+                                    isGestureActive = false
+                                }
                             }
                         }
                         .graphicsLayer(
-                            scaleX = animatedDocScale,
-                            scaleY = animatedDocScale,
-                            translationX = animatedDocOffsetX,
-                            translationY = animatedDocOffsetY
+                            scaleX = currentScale,
+                            scaleY = currentScale,
+                            translationX = currentOffsetX,
+                            translationY = currentOffsetY
                         )
                 ) {
                         /* COMMENTED OUT DUPLICATED WORKSPACE CODE:
@@ -688,6 +721,7 @@ fun ReaderScreen(
                                 currentTool = currentTool,
                                 annotationSubTool = annotationSubTool,
                                 onShowToolbar = showToolbarTemporarily,
+                                onDoubleTapZoom = onDoubleTapZoomPage,
                                 onAddStickyNote = { idx, offset ->
                                     selectedPageIndexForNote = idx
                                     selectedOffsetForNote = offset
@@ -825,13 +859,26 @@ fun ReaderScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Column {
-                                    Text(
-                                        result.originalWord,
-                                        fontSize = 24.sp,
-                                        fontWeight = FontWeight.Black,
-                                        color = Color.White
-                                    )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(
+                                        onClick = { viewModel.speak(result.originalWord, context) },
+                                        modifier = Modifier.testTag("speak_vocal_word_btn")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.VolumeUp,
+                                            contentDescription = "استماع",
+                                            tint = Gold,
+                                            modifier = Modifier.size(26.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Column {
+                                        Text(
+                                            result.originalWord,
+                                            fontSize = 24.sp,
+                                            fontWeight = FontWeight.Black,
+                                            color = Color.White
+                                        )
                                     result.phonetics?.let { phon ->
                                         if (phon.isNotBlank()) {
                                             Text(
@@ -1211,6 +1258,7 @@ fun PdfPageRenderItem(
     currentTool: ReaderTool,
     annotationSubTool: String,
     onShowToolbar: () -> Unit,
+    onDoubleTapZoom: (Offset, IntSize) -> Unit,
     onAddStickyNote: (Int, Offset) -> Unit,
     onAddText: (Int, Offset) -> Unit,
     onStickyNoteClick: (PdfAnnotation) -> Unit
@@ -1257,38 +1305,43 @@ fun PdfPageRenderItem(
                         .aspectRatio(aspect)
                         .onSizeChanged { containerSize = it }
                         .pointerInput(currentTool, annotationSubTool) {
-                            detectTapGestures { tapOffset ->
-                                when (currentTool) {
-                                    ReaderTool.NONE, ReaderTool.TRANSLATE -> {
-                                        val canvasSize = Size(containerSize.width.toFloat(), containerSize.height.toFloat())
-                                        viewModel.translateWordAtOffset(tapOffset, canvasSize, pageIndex, context)
-                                    }
-                                    ReaderTool.HIGHLIGHT -> {
-                                        viewModel.addAnnotation(
-                                            PdfAnnotation(
-                                                pdfId = viewModel.pdfId,
-                                                page = pageIndex,
-                                                type = AnnotationType.HIGHLIGHT,
-                                                x = tapOffset.x - 70f,
-                                                y = tapOffset.y - 14f,
-                                                width = 140f,
-                                                height = 28f,
-                                                colorHex = "#fbbf24"
+                            detectTapGestures(
+                                onDoubleTap = { tapOffset ->
+                                    onDoubleTapZoom(tapOffset, containerSize)
+                                },
+                                onTap = { tapOffset ->
+                                    when (currentTool) {
+                                        ReaderTool.NONE, ReaderTool.TRANSLATE -> {
+                                            val canvasSize = Size(containerSize.width.toFloat(), containerSize.height.toFloat())
+                                            viewModel.translateWordAtOffset(tapOffset, canvasSize, pageIndex, context)
+                                        }
+                                        ReaderTool.HIGHLIGHT -> {
+                                            viewModel.addAnnotation(
+                                                PdfAnnotation(
+                                                    pdfId = viewModel.pdfId,
+                                                    page = pageIndex,
+                                                    type = AnnotationType.HIGHLIGHT,
+                                                    x = tapOffset.x - 70f,
+                                                    y = tapOffset.y - 14f,
+                                                    width = 140f,
+                                                    height = 28f,
+                                                    colorHex = "#fbbf24"
+                                                )
                                             )
-                                        )
-                                    }
-                                    ReaderTool.NOTE -> {
-                                        if (annotationSubTool == "sticky") {
-                                            onAddStickyNote(pageIndex, tapOffset)
-                                        } else {
-                                            onAddText(pageIndex, tapOffset)
+                                        }
+                                        ReaderTool.NOTE -> {
+                                            if (annotationSubTool == "sticky") {
+                                                onAddStickyNote(pageIndex, tapOffset)
+                                            } else {
+                                                onAddText(pageIndex, tapOffset)
+                                            }
+                                        }
+                                        else -> {
+                                            onShowToolbar()
                                         }
                                     }
-                                    else -> {
-                                        onShowToolbar()
-                                    }
                                 }
-                            }
+                            )
                         }
                         /*
                         .pointerInput(currentTool, annotationSubTool) {
