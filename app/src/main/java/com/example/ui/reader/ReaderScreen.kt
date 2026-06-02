@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.speech.tts.TextToSpeech
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
@@ -154,6 +155,22 @@ fun ReaderScreen(
     var docScale by remember { mutableStateOf(1f) }
     var docOffset by remember { mutableStateOf(Offset.Zero) }
     var containerSize by remember { mutableStateOf(IntSize.Zero) }
+
+    val animatedDocScale by animateFloatAsState(
+        targetValue = docScale,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "docScale"
+    )
+    val animatedDocOffsetX by animateFloatAsState(
+        targetValue = docOffset.x,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "docOffsetX"
+    )
+    val animatedDocOffsetY by animateFloatAsState(
+        targetValue = docOffset.y,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "docOffsetY"
+    )
 
     // Synchronize scroll gestures to current page index active
     LaunchedEffect(lazyListState.firstVisibleItemIndex, lazyListState.isScrollInProgress) {
@@ -568,10 +585,10 @@ fun ReaderScreen(
                             }
                         }
                         .graphicsLayer(
-                            scaleX = docScale,
-                            scaleY = docScale,
-                            translationX = docOffset.x,
-                            translationY = docOffset.y
+                            scaleX = animatedDocScale,
+                            scaleY = animatedDocScale,
+                            translationX = animatedDocOffsetX,
+                            translationY = animatedDocOffsetY
                         )
                 ) {
                         /* COMMENTED OUT DUPLICATED WORKSPACE CODE:
@@ -1541,10 +1558,7 @@ fun PdfPageRenderItem(
                     .height(400.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Default.PictureAsPdf, contentDescription = "قراءة", tint = Color.LightGray, modifier = Modifier.size(48.dp))
-                    Text("فشل تحميل صفحة PDF", color = Color.Gray, fontSize = 13.sp)
-                }
+                CircularProgressIndicator(color = AccentBlue.copy(alpha = 0.3f))
             }
         }
     }

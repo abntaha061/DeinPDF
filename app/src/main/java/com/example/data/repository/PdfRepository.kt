@@ -13,8 +13,21 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
-
 import android.os.ParcelFileDescriptor
+
+import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.pdmodel.interactive.annotation.PDAnnotationLink
+import com.tom_roush.pdfbox.pdmodel.interactive.action.PDActionURI
+
+data class PdfLink(
+    val url: String,
+    val x: Float,
+    val y: Float,
+    val width: Float,
+    val height: Float,
+    val pageWidth: Float,
+    val pageHeight: Float
+)
 
 class PdfRepository(
     private val context: Context,
@@ -360,6 +373,72 @@ class PdfRepository(
             lower.contains("report") || lower.contains("تقرير") -> "reports"
             lower.contains("test") || lower.contains("exam") || lower.contains("اختبار") -> "tests"
             else -> "documents"
+        }
+    }
+
+    suspend fun getPageLinks(uri: Uri, pageIndex: Int): List<PdfLink> = withContext(Dispatchers.IO) {
+        var document: PDDocument? = null
+        var inputStream: java.io.InputStream? = null
+        try {
+            try {
+                val clazz = Class.forName("com.tom_roush.pdfbox.util.PDFBox")
+                clazz.getMethod("init", android.content.Context::class.java).invoke(null, context)
+            } catch (e1: Exception) {
+                try {
+                    val clazz = Class.forName("com.tom_roush.pdfbox.android.PDFBox")
+                    clazz.getMethod("init", android.content.Context::class.java).invoke(null, context)
+                } catch (e2: Exception) {
+                    e2.printStackTrace()
+                }
+            }
+            inputStream = context.contentResolver.openInputStream(uri) ?: return@withContext emptyList()
+            document = PDDocument.load(inputStream)
+            if (pageIndex < 0 || pageIndex >= document.numberOfPages) {
+                return@withContext emptyList()
+            }
+            val page = document.getPage(pageIndex) ?: return@withContext emptyList()
+            val mediaBox = page.cropBox ?: page.mediaBox ?: return@withContext emptyList()
+            val pdfHeight = mediaBox.height
+            val pdfWidth = mediaBox.width
+
+            val links = mutableListOf<PdfLink>()
+            val annotationsList = try { page.annotations } catch (e: Exception) { emptyList() }
+            for (annotation in annotationsList) {
+                if (annotation is PDAnnotationLink) {
+                    val action = annotation.action
+                    var url = ""
+                    if (action is PDActionURI) {
+                        url = action.uri ?: ""
+                    }
+                    if (url.isNotEmpty()) {
+                        val rect = annotation.rectangle
+                        if (rect != null) {
+                            val x = rect.lowerLeftX
+                            val y = pdfHeight - rect.upperRightY
+                            val w = rect.width
+                            val h = rect.height
+                            links.add(
+                                PdfLink(
+                                    url = url,
+                                    x = x,
+                                    y = y,
+                                    width = w,
+                                    height = h,
+                                    pageWidth = pdfWidth,
+                                    pageHeight = pdfHeight
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+            links
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        } finally {
+            try { document?.close() } catch (_: Exception) {}
+            try { inputStream?.close() } catch (_: Exception) {}
         }
     }
 }

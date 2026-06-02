@@ -123,6 +123,17 @@ class ReaderViewModel(
     private val bitmapCache = mutableMapOf<Int, Bitmap>()
     private var readStartTime = System.currentTimeMillis()
 
+    // Page links cache
+    private val pageLinksCache = mutableMapOf<Int, List<com.example.data.repository.PdfLink>>()
+
+    suspend fun getPageLinks(pageIndex: Int): List<com.example.data.repository.PdfLink> {
+        val uri = pdfUri ?: return emptyList()
+        pageLinksCache[pageIndex]?.let { return it }
+        val links = repository.getPageLinks(uri, pageIndex)
+        pageLinksCache[pageIndex] = links
+        return links
+    }
+
     // ===== Load PDF doc =====
     fun loadPdf(uri: Uri, id: Long, context: Context) {
         pdfUri = uri
@@ -207,6 +218,60 @@ class ReaderViewModel(
     fun translateWordAtOffset(offset: Offset, canvasSize: androidx.compose.ui.geometry.Size, pageIndex: Int, context: Context) {
         viewModelScope.launch {
             try {
+                // 1. Check if there are real interactive links to match (WPS Style)
+                val links = getPageLinks(pageIndex)
+                if (links.isNotEmpty() && canvasSize.width > 0f && canvasSize.height > 0f) {
+                    val normalizedX = offset.x / canvasSize.width
+                    val normalizedY = offset.y / canvasSize.height
+
+                    val clickedLink = links.find { link ->
+                        val pdfTouchX = normalizedX * link.pageWidth
+                        val pdfTouchY = normalizedY * link.pageHeight
+                        pdfTouchX >= link.x && pdfTouchX <= (link.x + link.width) &&
+                                pdfTouchY >= link.y && pdfTouchY <= (link.y + link.height)
+                    }
+
+                    if (clickedLink != null) {
+                        val url = clickedLink.url
+                        val isAudio = url.lowercase().endsWith(".mp3") ||
+                                      url.contains(".mp3?") ||
+                                      url.contains("/sound/") ||
+                                      url.contains("audio") ||
+                                      (url.contains("dwds") && url.contains("media"))
+
+                        if (isAudio) {
+                            // Immediate sound playback in the background (One-Tap dual effect)
+                            try {
+                                android.media.MediaPlayer().apply {
+                                    setDataSource(context, Uri.parse(url))
+                                    setOnPreparedListener { start() }
+                                    setOnCompletionListener { release() }
+                                    setOnErrorListener { mp, _, _ ->
+                                        mp.release()
+                                        true
+                                    }
+                                    prepareAsync()
+                                }
+                            } catch (ae: Exception) {
+                                ae.printStackTrace()
+                            }
+                        } else {
+                            // External browser instant action (One-Tap dual effect)
+                            try {
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                context.startActivity(intent)
+                            } catch (be: Exception) {
+                                be.printStackTrace()
+                            }
+                        }
+                        // Bypasses translation card and OCR completely for interactive links
+                        return@launch
+                    }
+                }
+
+                // 2. OCR Fallback for static elements (if no link is clicked)
                 val uri = pdfUri
                 if (uri != null) {
                     val bitmap = bitmapCache[pageIndex] ?: getPageBitmap(uri, pageIndex)
@@ -222,7 +287,7 @@ class ReaderViewModel(
                             val rect = block.boundingBox
                             rect != null && rect.contains(targetX, targetY)
                         }
-                        
+
                         var textToTranslate = tappedBlock?.text ?: ""
                         if (textToTranslate.isBlank()) {
                             // Find closest word/block
@@ -478,6 +543,7 @@ class ReaderViewModel(
         tts?.stop()
         tts?.shutdown()
         bitmapCache.clear()
+        pageLinksCache.clear()
 
         // Track and save read session history
         val duration = System.currentTimeMillis() - readStartTime
