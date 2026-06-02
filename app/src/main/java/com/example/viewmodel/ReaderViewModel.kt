@@ -133,7 +133,7 @@ class ReaderViewModel(
             
             // Look up file metadata
             repository.getAllFiles().firstOrNull()?.find { it.id == id }?.let { file ->
-                _currentPage.value = file.lastPage
+                _currentPage.value = file.lastPage.coerceIn(0, (_pageCount.value - 1).coerceAtLeast(0))
                 pdfName = file.name
             } ?: run {
                 pdfName = uri.lastPathSegment ?: "document.pdf"
