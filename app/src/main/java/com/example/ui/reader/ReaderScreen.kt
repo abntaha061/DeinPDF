@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
@@ -149,6 +150,10 @@ fun ReaderScreen(
 
     // Lazy load List State for WPS Style continuous paging
     val lazyListState = rememberLazyListState()
+
+    var docScale by remember { mutableStateOf(1f) }
+    var docOffset by remember { mutableStateOf(Offset.Zero) }
+    var containerSize by remember { mutableStateOf(IntSize.Zero) }
 
     // Synchronize scroll gestures to current page index active
     LaunchedEffect(lazyListState.firstVisibleItemIndex, lazyListState.isScrollInProgress) {
@@ -469,35 +474,220 @@ fun ReaderScreen(
         ) {
             // Main Pdf Workspace Scroll Loop
             if (pageCount > 0) {
-                LazyColumn(
-                    state = lazyListState,
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 120.dp, top = 8.dp)
-                ) {
-                    items(pageCount) { pageIndex ->
-                        PdfPageRenderItem(
-                            pageIndex = pageIndex,
-                            viewModel = viewModel,
-                            pdfUri = pdfUri,
-                            currentTool = currentTool,
-                            annotationSubTool = annotationSubTool,
-                            onShowToolbar = showToolbarTemporarily,
-                            onAddStickyNote = { idx, offset ->
-                                selectedPageIndexForNote = idx
-                                selectedOffsetForNote = offset
-                                stickyNoteTextInput = ""
-                                showStickyNoteDialog = true
-                            },
-                            onAddText = { idx, offset ->
-                                selectedPageIndexForText = idx
-                                selectedOffsetForText = offset
-                                textAnnotationInput = ""
-                                showTextDialog = true
-                            },
-                            onStickyNoteClick = { annot ->
-                                activeStickyNoteToShow = annot
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .onSizeChanged { containerSize = it }
+                        .pointerInput(docScale) {
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                                var pastTouchSlop = false
+                                val touchSlop = viewConfiguration.touchSlop
+                                var accumulatedPan = Offset.Zero
+                                var accumulatedZoom = 1f
+
+                                while (true) {
+                                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                                    val changes = event.changes
+                                    val isAnyPressed = changes.any { it.pressed }
+                                    if (!isAnyPressed) break
+
+                                    val isMultiTouch = changes.size > 1
+
+                                    if (isMultiTouch) {
+                                        val zoomChange = event.calculateZoom()
+                                        val panChange = event.calculatePan()
+                                        val centroid = event.calculateCentroid(useCurrent = false)
+
+                                        if (!pastTouchSlop) {
+                                            accumulatedPan += panChange
+                                            accumulatedZoom *= zoomChange
+                                            val panMotion = accumulatedPan.getDistance()
+                                            val zoomMotion = kotlin.math.abs(1f - accumulatedZoom) * event.calculateCentroidSize(useCurrent = false)
+
+                                            if (panMotion > touchSlop || zoomMotion > touchSlop) {
+                                                pastTouchSlop = true
+                                            }
+                                        }
+
+                                        if (pastTouchSlop) {
+                                            val oldScale = docScale
+                                            val newScale = (docScale * zoomChange).coerceIn(1f, 4f)
+                                            val effectiveZoom = newScale / oldScale
+
+                                            if (newScale > 1f) {
+                                                val centroidInAspected = centroid - Offset(containerSize.width / 2f, containerSize.height / 2f)
+                                                val newOffset = (docOffset - centroidInAspected) * effectiveZoom + centroidInAspected + panChange
+
+                                                val maxX = (containerSize.width * (newScale - 1f)) / 2f
+                                                val maxY = (containerSize.height * (newScale - 1f)) / 2f
+                                                docOffset = Offset(
+                                                    x = newOffset.x.coerceIn(-maxX, maxX),
+                                                    y = newOffset.y.coerceIn(-maxY, maxY)
+                                                )
+                                            } else {
+                                                docOffset = Offset.Zero
+                                            }
+                                            docScale = newScale
+
+                                            changes.forEach { it.consume() }
+                                        }
+                                    } else if (docScale > 1f) {
+                                        val panChange = event.calculatePan()
+
+                                        if (!pastTouchSlop) {
+                                            accumulatedPan += panChange
+                                            if (accumulatedPan.getDistance() > touchSlop) {
+                                                pastTouchSlop = true
+                                            }
+                                        }
+
+                                        if (pastTouchSlop) {
+                                            val maxX = (containerSize.width * (docScale - 1f)) / 2f
+                                            val maxY = (containerSize.height * (docScale - 1f)) / 2f
+
+                                            val proposedX = docOffset.x + panChange.x
+                                            val proposedY = docOffset.y + panChange.y
+
+                                            val boundedX = proposedX.coerceIn(-maxX, maxX)
+                                            val boundedY = proposedY.coerceIn(-maxY, maxY)
+
+                                            val extraY = proposedY - boundedY
+
+                                            if (kotlin.math.abs(extraY) > 0.01f) {
+                                                lazyListState.dispatchRawDelta(-extraY)
+                                            }
+
+                                            docOffset = Offset(boundedX, boundedY)
+                                            changes.forEach { it.consume() }
+                                        }
+                                    } else {
+                                        break
+                                    }
+                                }
                             }
+                        }
+                        .graphicsLayer(
+                            scaleX = docScale,
+                            scaleY = docScale,
+                            translationX = docOffset.x,
+                            translationY = docOffset.y
                         )
+                ) {
+                        /* COMMENTED OUT DUPLICATED WORKSPACE CODE:
+                        .pointerInput(docScale) {
+                            awaitEachGesture {
+                                var isMultiTouch = false
+                                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                                var accumulatedPan = Offset.Zero
+                                var accumulatedZoom = 1f
+                                var pastTouchSlop = false
+                                val touchSlop = viewConfiguration.touchSlop
+
+                                do {
+                                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                                    val changes = event.changes
+                                    if (changes.size > 1) {
+                                        isMultiTouch = true
+                                    }
+
+                                    val isAnyPressed = changes.any { it.pressed }
+                                    if (!isAnyPressed) break
+
+                                    if (isMultiTouch) {
+                                        val zoomChange = event.calculateZoom()
+                                        val panChange = event.calculatePan()
+                                        val centroid = event.calculateCentroid(useCurrent = false)
+
+                                        if (!pastTouchSlop) {
+                                            accumulatedPan += panChange
+                                            accumulatedZoom *= zoomChange
+                                            val panMotion = accumulatedPan.getDistance()
+                                            val zoomMotion = kotlin.math.abs(1f - accumulatedZoom) * event.calculateCentroidSize(useCurrent = false)
+
+                                            if (panMotion > touchSlop || zoomMotion > touchSlop) {
+                                                pastTouchSlop = true
+                                            }
+                                        }
+
+                                        if (pastTouchSlop) {
+                                            val oldScale = docScale
+                                            val newScale = (docScale * zoomChange).coerceIn(1f, 4f)
+                                            val effectiveZoom = newScale / oldScale
+
+                                            if (newScale > 1f) {
+                                                val centroidInAspected = centroid - Offset(containerSize.width / 2f, containerSize.height / 2f)
+                                                docOffset = (docOffset - centroidInAspected) * effectiveZoom + centroidInAspected + panChange
+
+                                                val maxX = (containerSize.width * (newScale - 1f)) / 2f
+                                                val maxY = (containerSize.height * (newScale - 1f)) / 2f
+                                                docOffset = Offset(
+                                                    x = docOffset.x.coerceIn(-maxX, maxX),
+                                                    y = docOffset.y.coerceIn(-maxY, maxY)
+                                                )
+                                            } else {
+                                                docOffset = Offset.Zero
+                                            }
+                                            docScale = newScale
+
+                                            changes.forEach { it.consume() }
+                                        }
+                                    } else if (docScale > 1f) {
+                                        val panChange = event.calculatePan()
+
+                                        if (!pastTouchSlop) {
+                                            accumulatedPan += panChange
+                                            if (accumulatedPan.getDistance() > touchSlop) {
+                                                pastTouchSlop = true
+                                            }
+                                        }
+
+                                        if (pastTouchSlop) {
+                                            // Check if mostly horizontal
+                                            if (kotlin.math.abs(accumulatedPan.x) > kotlin.math.abs(accumulatedPan.y)) {
+                                                val maxX = (containerSize.width * (docScale - 1f)) / 2f
+                                                val newX = (docOffset.x + panChange.x).coerceIn(-maxX, maxX)
+                                                docOffset = Offset(newX, docOffset.y)
+
+                                                changes.forEach { it.consume() }
+                                            }
+                                        }
+                                    }
+                                } while (event.changes.any { it.pressed })
+                            }
+                        }
+                        */
+                        /* END OF COMMENTED DUPLICATE CODE */
+                    LazyColumn(
+                        state = lazyListState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(bottom = 120.dp, top = 8.dp)
+                    ) {
+                        items(pageCount) { pageIndex ->
+                            PdfPageRenderItem(
+                                pageIndex = pageIndex,
+                                viewModel = viewModel,
+                                pdfUri = pdfUri,
+                                currentTool = currentTool,
+                                annotationSubTool = annotationSubTool,
+                                onShowToolbar = showToolbarTemporarily,
+                                onAddStickyNote = { idx, offset ->
+                                    selectedPageIndexForNote = idx
+                                    selectedOffsetForNote = offset
+                                    stickyNoteTextInput = ""
+                                    showStickyNoteDialog = true
+                                },
+                                onAddText = { idx, offset ->
+                                    selectedPageIndexForText = idx
+                                    selectedOffsetForText = offset
+                                    textAnnotationInput = ""
+                                    showTextDialog = true
+                                },
+                                onStickyNoteClick = { annot ->
+                                    activeStickyNoteToShow = annot
+                                }
+                            )
+                        }
                     }
                 }
             } else {
@@ -1042,8 +1232,6 @@ fun PdfPageRenderItem(
             }
         } else {
             pageBitmap?.let { bitmap ->
-                var pageScale by remember { mutableStateOf(1f) }
-                var pageOffset by remember { mutableStateOf(Offset.Zero) }
                 var containerSize by remember { mutableStateOf(IntSize.Zero) }
                 val aspect = bitmap.width.toFloat() / bitmap.height.toFloat()
                 Box(
@@ -1051,10 +1239,45 @@ fun PdfPageRenderItem(
                         .fillMaxWidth()
                         .aspectRatio(aspect)
                         .onSizeChanged { containerSize = it }
-                        .pointerInput(currentTool, annotationSubTool, pageScale, pageOffset) {
+                        .pointerInput(currentTool, annotationSubTool) {
+                            detectTapGestures { tapOffset ->
+                                when (currentTool) {
+                                    ReaderTool.NONE, ReaderTool.TRANSLATE -> {
+                                        val canvasSize = Size(containerSize.width.toFloat(), containerSize.height.toFloat())
+                                        viewModel.translateWordAtOffset(tapOffset, canvasSize, pageIndex, context)
+                                    }
+                                    ReaderTool.HIGHLIGHT -> {
+                                        viewModel.addAnnotation(
+                                            PdfAnnotation(
+                                                pdfId = viewModel.pdfId,
+                                                page = pageIndex,
+                                                type = AnnotationType.HIGHLIGHT,
+                                                x = tapOffset.x - 70f,
+                                                y = tapOffset.y - 14f,
+                                                width = 140f,
+                                                height = 28f,
+                                                colorHex = "#fbbf24"
+                                            )
+                                        )
+                                    }
+                                    ReaderTool.NOTE -> {
+                                        if (annotationSubTool == "sticky") {
+                                            onAddStickyNote(pageIndex, tapOffset)
+                                        } else {
+                                            onAddText(pageIndex, tapOffset)
+                                        }
+                                    }
+                                    else -> {
+                                        onShowToolbar()
+                                    }
+                                }
+                            }
+                        }
+                        /*
+                        .pointerInput(currentTool, annotationSubTool) {
                             awaitEachGesture {
                                 var isMultiTouch = false
-                                val down = awaitFirstDown(requireUnconsumed = false)
+                                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                                 var tapEventDetected = true
                                 val touchSlop = viewConfiguration.touchSlop
                                 var accumulatedPan = Offset.Zero
@@ -1062,7 +1285,7 @@ fun PdfPageRenderItem(
                                 var pastTouchSlop = false
 
                                 do {
-                                    val event = awaitPointerEvent()
+                                    val event = awaitPointerEvent(PointerEventPass.Initial)
                                     val changes = event.changes
                                     if (changes.size > 1) {
                                         isMultiTouch = true
@@ -1072,63 +1295,53 @@ fun PdfPageRenderItem(
                                     val isAnyPressed = changes.any { it.pressed }
                                     if (!isAnyPressed) break
 
-                                    // If any pointer was consumed by an outer layer (like LazyColumn scroll),
-                                    // we mark tapEventDetected as false and don't do any custom action on this page.
-                                    // But we DO NOT break the loop! This prevents the tight infinite loop
-                                    // while the finger is still held down during scrolling or other consumed gestures.
-                                    val isEventAlreadyConsumed = changes.any { it.isConsumed }
-                                    if (isEventAlreadyConsumed) {
-                                        tapEventDetected = false
-                                    }
+                                    if (isMultiTouch || pageScale > 1f) {
+                                        val zoomChange = event.calculateZoom()
+                                        val panChange = event.calculatePan()
+                                        val centroid = event.calculateCentroid(useCurrent = false)
 
-                                    if (!isEventAlreadyConsumed) {
-                                        if (isMultiTouch || pageScale > 1f) {
-                                            val zoomChange = event.calculateZoom()
-                                            val panChange = event.calculatePan()
-                                            val centroid = event.calculateCentroid(useCurrent = false)
-
-                                            if (!pastTouchSlop) {
-                                                accumulatedPan += panChange
-                                                accumulatedZoom *= zoomChange
-                                                val panMotion = accumulatedPan.getDistance()
-                                                val zoomMotion = kotlin.math.abs(1f - accumulatedZoom) * event.calculateCentroidSize(useCurrent = false)
-
-                                                if (panMotion > touchSlop || zoomMotion > touchSlop) {
-                                                    pastTouchSlop = true
-                                                }
-                                            }
-
-                                            if (pastTouchSlop) {
-                                                val oldScale = pageScale
-                                                val newScale = (pageScale * zoomChange).coerceIn(1f, 4f)
-                                                val effectiveZoom = newScale / oldScale
-
-                                                if (newScale > 1f) {
-                                                    val centroidInAspected = centroid - Offset(containerSize.width / 2f, containerSize.height / 2f)
-                                                    pageOffset = (pageOffset - centroidInAspected) * effectiveZoom + centroidInAspected + panChange
-
-                                                    val maxX = (containerSize.width * (newScale - 1f)) / 2f
-                                                    val maxY = (containerSize.height * (newScale - 1f)) / 2f
-                                                    pageOffset = Offset(
-                                                        x = pageOffset.x.coerceIn(-maxX, maxX),
-                                                        y = pageOffset.y.coerceIn(-maxY, maxY)
-                                                    )
-                                                } else {
-                                                    pageOffset = Offset.Zero
-                                                }
-                                                pageScale = newScale
-
-                                                changes.forEach {
-                                                    it.consume()
-                                                }
-                                                tapEventDetected = false
-                                            }
-                                        } else {
-                                            val panChange = event.calculatePan()
+                                        if (!pastTouchSlop) {
                                             accumulatedPan += panChange
-                                            if (accumulatedPan.getDistance() > touchSlop) {
-                                                tapEventDetected = false
+                                            accumulatedZoom *= zoomChange
+                                            val panMotion = accumulatedPan.getDistance()
+                                            val zoomMotion = kotlin.math.abs(1f - accumulatedZoom) * event.calculateCentroidSize(useCurrent = false)
+
+                                            if (panMotion > touchSlop || zoomMotion > touchSlop) {
+                                                pastTouchSlop = true
                                             }
+                                        }
+
+                                        if (pastTouchSlop) {
+                                            val oldScale = pageScale
+                                            val newScale = (pageScale * zoomChange).coerceIn(1f, 4f)
+                                            val effectiveZoom = newScale / oldScale
+
+                                            if (newScale > 1f) {
+                                                val centroidInAspected = centroid - Offset(containerSize.width / 2f, containerSize.height / 2f)
+                                                pageOffset = (pageOffset - centroidInAspected) * effectiveZoom + centroidInAspected + panChange
+
+                                                val maxX = (containerSize.width * (newScale - 1f)) / 2f
+                                                val maxY = (containerSize.height * (newScale - 1f)) / 2f
+                                                pageOffset = Offset(
+                                                    x = pageOffset.x.coerceIn(-maxX, maxX),
+                                                    y = pageOffset.y.coerceIn(-maxY, maxY)
+                                                )
+                                            } else {
+                                                pageOffset = Offset.Zero
+                                            }
+                                            pageScale = newScale
+
+                                            // Consume on Initial pass to block LazyColumn from scrolling during zoom or pan
+                                            changes.forEach {
+                                                it.consume()
+                                            }
+                                            tapEventDetected = false
+                                        }
+                                    } else {
+                                        val panChange = event.calculatePan()
+                                        accumulatedPan += panChange
+                                        if (accumulatedPan.getDistance() > touchSlop) {
+                                            tapEventDetected = false
                                         }
                                     }
                                 } while (event.changes.any { it.pressed })
@@ -1168,12 +1381,7 @@ fun PdfPageRenderItem(
                                 }
                             }
                         }
-                        .graphicsLayer(
-                            scaleX = pageScale,
-                            scaleY = pageScale,
-                            translationX = pageOffset.x,
-                            translationY = pageOffset.y
-                        )
+                        */
                 ) {
                     Image(
                         bitmap = bitmap.asImageBitmap(),
