@@ -190,23 +190,37 @@ class ReaderViewModel(
     suspend fun getPageBitmap(uri: Uri, pageIndex: Int): Bitmap? {
         bitmapCache[pageIndex]?.let { return it }
         val bm = repository.renderPdfPage(uri, pageIndex, 1080)
-        bm?.let { bitmapCache[pageIndex] = it }
+        bm?.let { 
+            // Memory Eviction Strategy: Evict oldest bitmap if cache size exceeds 5
+            if (bitmapCache.size >= 5) {
+                val oldestKey = bitmapCache.keys.firstOrNull()
+                if (oldestKey != null) {
+                    bitmapCache.remove(oldestKey)
+                }
+            }
+            bitmapCache[pageIndex] = it 
+        }
         return bm
     }
 
     // ===== Intercept word under touch coordinates =====
-    fun translateWordAtOffset(offset: Offset, pageIndex: Int) {
+    fun translateWordAtOffset(offset: Offset, canvasSize: androidx.compose.ui.geometry.Size, pageIndex: Int) {
         viewModelScope.launch {
             try {
                 val uri = pdfUri
                 if (uri != null) {
                     val bitmap = bitmapCache[pageIndex] ?: getPageBitmap(uri, pageIndex)
-                    if (bitmap != null) {
+                    if (bitmap != null && canvasSize.width > 0f && canvasSize.height > 0f) {
+                        val scaleX = bitmap.width.toFloat() / canvasSize.width
+                        val scaleY = bitmap.height.toFloat() / canvasSize.height
+                        val targetX = (offset.x * scaleX).toInt()
+                        val targetY = (offset.y * scaleY).toInt()
+
                         val ocrResult = ocrManager.recognizeText(bitmap, com.example.utils.OcrLanguage.AUTO)
                         // Find a bounding block enclosing the tapped coordinates (or close enough)
                         val tappedBlock = ocrResult.blocks.find { block ->
                             val rect = block.boundingBox
-                            rect != null && rect.contains(offset.x.toInt(), offset.y.toInt())
+                            rect != null && rect.contains(targetX, targetY)
                         }
                         
                         var textToTranslate = tappedBlock?.text ?: ""
@@ -214,8 +228,8 @@ class ReaderViewModel(
                             // Find closest word/block
                             val closestBlock = ocrResult.blocks.minByOrNull { block ->
                                 val rect = block.boundingBox ?: return@minByOrNull Float.MAX_VALUE
-                                val dx = rect.centerX() - offset.x
-                                val dy = rect.centerY() - offset.y
+                                val dx = rect.centerX().toFloat() - targetX
+                                val dy = rect.centerY().toFloat() - targetY
                                 dx * dx + dy * dy
                             }
                             textToTranslate = closestBlock?.text ?: ""
@@ -344,18 +358,20 @@ class ReaderViewModel(
         val targetLocale = if (hasArabic) Locale("ar") else Locale.GERMAN
 
         if (tts == null) {
-            tts = TextToSpeech(context) { status ->
+            var tempTts: TextToSpeech? = null
+            tempTts = TextToSpeech(context) { status ->
                 if (status == TextToSpeech.SUCCESS) {
-                    tts?.language = targetLocale
-                    tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                    tempTts?.language = targetLocale
+                    tempTts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                         override fun onStart(utteranceId: String?) { _isTtsPlaying.value = true }
                         override fun onDone(utteranceId: String?) { _isTtsPlaying.value = false }
                         override fun onError(utteranceId: String?) { _isTtsPlaying.value = false }
                     })
-                    tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "reader_tts")
+                    tempTts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "reader_tts")
                     _isTtsPlaying.value = true
                 }
             }
+            tts = tempTts
         } else {
             tts?.language = targetLocale
             tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "reader_tts")
@@ -457,7 +473,6 @@ class ReaderViewModel(
         super.onCleared()
         tts?.stop()
         tts?.shutdown()
-        bitmapCache.values.forEach { it.recycle() }
         bitmapCache.clear()
 
         // Track and save read session history

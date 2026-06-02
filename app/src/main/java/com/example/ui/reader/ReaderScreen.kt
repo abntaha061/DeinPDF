@@ -143,15 +143,15 @@ fun ReaderScreen(
     val lazyListState = rememberLazyListState()
 
     // Synchronize scroll gestures to current page index active
-    LaunchedEffect(lazyListState.firstVisibleItemIndex) {
-        if (pageCount > 0) {
+    LaunchedEffect(lazyListState.firstVisibleItemIndex, isDraggingScrollbar) {
+        if (pageCount > 0 && !isDraggingScrollbar) {
             viewModel.setPage(lazyListState.firstVisibleItemIndex)
         }
     }
 
     // Handle jumping to page programmatically
-    LaunchedEffect(currentPage) {
-        if (pageCount > 0 && lazyListState.firstVisibleItemIndex != currentPage) {
+    LaunchedEffect(currentPage, isDraggingScrollbar) {
+        if (pageCount > 0 && !isDraggingScrollbar && lazyListState.firstVisibleItemIndex != currentPage) {
             lazyListState.scrollToItem(currentPage)
         }
     }
@@ -459,9 +459,14 @@ fun ReaderScreen(
                                     if (java.lang.Math.abs(dragYAccumulator) >= step) {
                                         val deltaPages = (dragYAccumulator / step).toInt()
                                         if (deltaPages != 0) {
-                                            val targetPage = (currentPage + deltaPages).coerceIn(0, pageCount - 1)
-                                            if (targetPage != currentPage) {
+                                            val currentVal = viewModel.currentPage.value
+                                            val maxVal = viewModel.pageCount.value
+                                            val targetPage = (currentVal + deltaPages).coerceIn(0, maxVal - 1)
+                                            if (targetPage != currentVal) {
                                                 viewModel.setPage(targetPage)
+                                                coroutineScope.launch {
+                                                    lazyListState.scrollToItem(targetPage)
+                                                }
                                             }
                                             dragYAccumulator %= step
                                         }
@@ -1044,7 +1049,8 @@ fun PdfPageRenderItem(
                                                 )
                                             }
                                             ReaderTool.TRANSLATE -> {
-                                                viewModel.translateWordAtOffset(tapOffset, pageIndex)
+                                                val canvasSize = Size(size.width.toFloat(), size.height.toFloat())
+                                                viewModel.translateWordAtOffset(tapOffset, canvasSize, pageIndex)
                                             }
                                             ReaderTool.NOTE -> {
                                                 if (annotationSubTool == "sticky") {

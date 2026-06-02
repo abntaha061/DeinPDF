@@ -89,12 +89,19 @@ class OcrManager(private val context: Context) {
         suspendCancellableCoroutine { cont ->
             latinRecognizer.process(image)
                 .addOnSuccessListener { visionText ->
-                    val blocks = visionText.textBlocks.map { block ->
-                        OcrBlock(
-                            text = block.text,
-                            boundingBox = block.boundingBox,
-                            lines = block.lines.map { it.text }
-                        )
+                    val blocks = mutableListOf<OcrBlock>()
+                    for (block in visionText.textBlocks) {
+                        for (line in block.lines) {
+                            for (element in line.elements) {
+                                blocks.add(
+                                    OcrBlock(
+                                        text = element.text,
+                                        boundingBox = element.boundingBox,
+                                        lines = listOf(line.text)
+                                    )
+                                )
+                            }
+                        }
                     }
                     cont.resume(
                         OcrResult(
@@ -112,12 +119,19 @@ class OcrManager(private val context: Context) {
         suspendCancellableCoroutine { cont ->
             arabicRecognizer.process(image)
                 .addOnSuccessListener { visionText ->
-                    val blocks = visionText.textBlocks.map { block ->
-                        OcrBlock(
-                            text = block.text,
-                            boundingBox = block.boundingBox,
-                            lines = block.lines.map { it.text }
-                        )
+                    val blocks = mutableListOf<OcrBlock>()
+                    for (block in visionText.textBlocks) {
+                        for (line in block.lines) {
+                            for (element in line.elements) {
+                                blocks.add(
+                                    OcrBlock(
+                                        text = element.text,
+                                        boundingBox = element.boundingBox,
+                                        lines = listOf(line.text)
+                                    )
+                                )
+                            }
+                        }
                     }
                     cont.resume(
                         OcrResult(
