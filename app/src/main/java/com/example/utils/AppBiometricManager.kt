@@ -45,7 +45,7 @@ class AppBiometricManager(private val context: Context) {
         onFailure: (String) -> Unit
     ) {
         try {
-            val executor = ContextCompat.getMainExecutor(context)
+            val executor = ContextCompat.getMainExecutor(activity)
 
             val callback = object : BiometricPrompt.AuthenticationCallback() {
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {

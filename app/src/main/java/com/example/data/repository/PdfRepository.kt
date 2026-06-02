@@ -249,6 +249,22 @@ class PdfRepository(
             } catch (_: Exception) {}
         }
 
+        // 5. Web Preview Fallback inside Web Studio environment
+        try {
+            val cacheAssetFile = java.io.File(context.cacheDir, "sample_preview.pdf")
+            if (!cacheAssetFile.exists() || cacheAssetFile.length() == 0L) {
+                context.assets.open("sample_preview.pdf").use { input ->
+                    cacheAssetFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+            }
+            if (cacheAssetFile.exists() && cacheAssetFile.length() > 0L) {
+                val pfd = ParcelFileDescriptor.open(cacheAssetFile, ParcelFileDescriptor.MODE_READ_ONLY)
+                if (pfd != null) return pfd
+            }
+        } catch (_: Exception) {}
+
         return null
     }
 

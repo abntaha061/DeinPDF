@@ -30,6 +30,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -147,18 +149,24 @@ fun ReaderScreen(
 
     // Lazy load List State for WPS Style continuous paging
     val lazyListState = rememberLazyListState()
+    var isProgrammaticScroll by remember { mutableStateOf(false) }
 
     // Synchronize scroll gestures to current page index active
-    LaunchedEffect(lazyListState.firstVisibleItemIndex, isDraggingScrollbar) {
-        if (pageCount > 0 && !isDraggingScrollbar) {
+    LaunchedEffect(lazyListState.firstVisibleItemIndex) {
+        if (pageCount > 0 && !isProgrammaticScroll) {
             viewModel.setPage(lazyListState.firstVisibleItemIndex)
         }
     }
 
     // Handle jumping to page programmatically
-    LaunchedEffect(currentPage, isDraggingScrollbar) {
-        if (pageCount > 0 && !isDraggingScrollbar && lazyListState.firstVisibleItemIndex != currentPage) {
-            lazyListState.scrollToItem(currentPage)
+    LaunchedEffect(currentPage) {
+        if (pageCount > 0 && lazyListState.firstVisibleItemIndex != currentPage) {
+            isProgrammaticScroll = true
+            try {
+                lazyListState.scrollToItem(currentPage)
+            } finally {
+                isProgrammaticScroll = false
+            }
         }
     }
 
@@ -412,34 +420,7 @@ fun ReaderScreen(
                                 )
                             }
 
-                            // 5. TTS Voice
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .clickable { 
-                                        viewModel.toggleTts(context, currentPage)
-                                        showToolbarTemporarily()
-                                    }
-                                    .padding(vertical = 8.dp, horizontal = 4.dp)
-                            ) {
-                                Icon(
-                                    if (isTtsPlaying) Icons.Default.VolumeUp else Icons.Default.VolumeMute,
-                                    contentDescription = "استماع للألماني",
-                                    tint = if (isTtsPlaying) SuccessGreen else Color.White,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    if (isTtsPlaying) "إيقاف" else "نطق الصفحة", 
-                                    fontSize = 11.sp, 
-                                    color = if (isTtsPlaying) SuccessGreen else Color.White,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Visible,
-                                    textAlign = TextAlign.Center
-                                )
-                            }
+
 
                             // 6. Translator Text Select Touch
                             Column(
@@ -526,96 +507,7 @@ fun ReaderScreen(
                 }
             }
 
-            // WPS Premium Scrollbar Navigator widget over the screen
-            if ((isToolbarVisible || isEditingMode || isDraggingScrollbar) && pageCount > 1) {
-                var dragYAccumulator by remember { mutableStateOf(0f) }
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.CenterEnd)
-                        .fillMaxHeight(0.6f)
-                        .padding(end = 10.dp)
-                        .width(44.dp)
-                        .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(22.dp))
-                        .padding(vertical = 14.dp)
-                        .pointerInput(pageCount) {
-                            detectDragGestures(
-                                onDragStart = { 
-                                    isDraggingScrollbar = true
-                                    dragYAccumulator = 0f
-                                    showToolbarTemporarily()
-                                },
-                                onDrag = { change, dragAmount ->
-                                    change.consume()
-                                    dragYAccumulator += dragAmount.y
-                                    val step = 35f
-                                    if (java.lang.Math.abs(dragYAccumulator) >= step) {
-                                        val deltaPages = (dragYAccumulator / step).toInt()
-                                        if (deltaPages != 0) {
-                                            val currentVal = viewModel.currentPage.value
-                                            val maxVal = viewModel.pageCount.value
-                                            val targetPage = (currentVal + deltaPages).coerceIn(0, (maxVal - 1).coerceAtLeast(0))
-                                            if (targetPage != currentVal) {
-                                                viewModel.setPage(targetPage)
-                                                coroutineScope.launch {
-                                                    lazyListState.scrollToItem(targetPage)
-                                                }
-                                            }
-                                            dragYAccumulator %= step
-                                        }
-                                    }
-                                    showToolbarTemporarily()
-                                },
-                                onDragEnd = {
-                                    isDraggingScrollbar = false
-                                }
-                            )
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        modifier = Modifier.fillMaxSize(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        IconButton(
-                            onClick = { 
-                                if (currentPage > 0) {
-                                    viewModel.setPage(currentPage - 1)
-                                    showToolbarTemporarily()
-                                }
-                            }
-                        ) {
-                            Icon(Icons.Default.KeyboardArrowUp, contentDescription = "السابق", tint = Color.White)
-                        }
 
-                        // Bubbled current page state container indicator
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .background(if (isDraggingScrollbar) SuccessGreen else Gold, CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                "${currentPage + 1}",
-                                color = Color.White,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        IconButton(
-                            onClick = { 
-                                if (currentPage < pageCount - 1) {
-                                    viewModel.setPage(currentPage + 1)
-                                    showToolbarTemporarily()
-                                }
-                            }
-                        ) {
-                            Icon(Icons.Default.KeyboardArrowDown, contentDescription = "التالي", tint = Color.White)
-                        }
-                    }
-                }
-            }
 
             // Search Panel Layout
             if (isSearchVisible) {
@@ -1149,22 +1041,31 @@ fun PdfPageRenderItem(
             pageBitmap?.let { bitmap ->
                 var pageScale by remember { mutableStateOf(1f) }
                 var pageOffset by remember { mutableStateOf(Offset.Zero) }
+                var containerSize by remember { mutableStateOf(IntSize.Zero) }
                 val aspect = bitmap.width.toFloat() / bitmap.height.toFloat()
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .aspectRatio(aspect)
+                        .onSizeChanged { containerSize = it }
                         .pointerInput(Unit) {
-                            detectTransformGestures { _, pan, zoom, _ ->
-                                pageScale = (pageScale * zoom).coerceIn(1f, 4f)
-                                if (pageScale > 1f) {
+                            detectTransformGestures { centroid, pan, zoom, _ ->
+                                val oldScale = pageScale
+                                val newScale = (pageScale * zoom).coerceIn(1f, 4f)
+                                val effectiveZoom = newScale / oldScale
+                                
+                                if (newScale > 1f) {
+                                    val rawOffset = (pageOffset - centroid) * effectiveZoom + centroid + pan
+                                    val maxX = (containerSize.width * (newScale - 1f)) / 2f
+                                    val maxY = (containerSize.height * (newScale - 1f)) / 2f
                                     pageOffset = Offset(
-                                        x = pageOffset.x + pan.x,
-                                        y = pageOffset.y + pan.y
+                                        x = rawOffset.x.coerceIn(-maxX, maxX),
+                                        y = rawOffset.y.coerceIn(-maxY, maxY)
                                     )
                                 } else {
                                     pageOffset = Offset.Zero
                                 }
+                                pageScale = newScale
                             }
                         }
                         .graphicsLayer(

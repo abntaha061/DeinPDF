@@ -43,14 +43,24 @@ fun VocabularyScreen(
     var ttsRef = remember { mutableStateOf<TextToSpeech?>(null) }
     
     DisposableEffect(context) {
-        val tempTts = TextToSpeech(context) { status ->
+        var tempTts: TextToSpeech? = null
+        tempTts = TextToSpeech(context) { status ->
             if (status == TextToSpeech.SUCCESS) {
-                ttsRef.value?.language = Locale.GERMAN
+                // Set language on the tempTts instance directly
+                try {
+                    tempTts?.language = Locale.GERMAN
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
             }
         }
         ttsRef.value = tempTts
         onDispose {
-            tempTts.shutdown()
+            try {
+                tempTts?.shutdown()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
     }
 
