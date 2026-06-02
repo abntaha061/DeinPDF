@@ -80,8 +80,6 @@ fun ReaderScreen(
     val isToolbarVisible by viewModel.isToolbarVisible.collectAsState()
     val currentTool by viewModel.currentTool.collectAsState()
     var isEditingMode by remember { mutableStateOf(false) }
-    var scale by remember { mutableStateOf(1f) }
-    var offset by remember { mutableStateOf(Offset.Zero) }
 
     val translationResult by viewModel.translationResult.collectAsState()
     val showTranslationCard by viewModel.showTranslationCard.collectAsState()
@@ -490,43 +488,7 @@ fun ReaderScreen(
             if (pageCount > 0) {
                 LazyColumn(
                     state = lazyListState,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .pointerInput(Unit) {
-                            detectTransformGestures { _, pan, zoom, _ ->
-                                scale = (scale * zoom).coerceIn(1f, 4f)
-                                if (scale > 1f) {
-                                    offset = Offset(
-                                        x = offset.x + pan.x,
-                                        y = offset.y + pan.y
-                                    )
-                                } else {
-                                    offset = Offset.Zero
-                                }
-                            }
-                        }
-                        .graphicsLayer(
-                            scaleX = scale,
-                            scaleY = scale,
-                            translationX = offset.x,
-                            translationY = offset.y
-                        )
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) {
-                            if (isEditingMode) {
-                                isEditingMode = false
-                                viewModel.setTool(ReaderTool.NONE)
-                                viewModel.showToolbar(false)
-                            } else {
-                                if (isToolbarVisible) {
-                                    viewModel.showToolbar(false)
-                                } else {
-                                    showToolbarTemporarily()
-                                }
-                            }
-                        },
+                    modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 120.dp, top = 8.dp)
                 ) {
                     items(pageCount) { pageIndex ->
@@ -1185,11 +1147,32 @@ fun PdfPageRenderItem(
             }
         } else {
             pageBitmap?.let { bitmap ->
+                var pageScale by remember { mutableStateOf(1f) }
+                var pageOffset by remember { mutableStateOf(Offset.Zero) }
                 val aspect = bitmap.width.toFloat() / bitmap.height.toFloat()
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .aspectRatio(aspect)
+                        .pointerInput(Unit) {
+                            detectTransformGestures { _, pan, zoom, _ ->
+                                pageScale = (pageScale * zoom).coerceIn(1f, 4f)
+                                if (pageScale > 1f) {
+                                    pageOffset = Offset(
+                                        x = pageOffset.x + pan.x,
+                                        y = pageOffset.y + pan.y
+                                    )
+                                } else {
+                                    pageOffset = Offset.Zero
+                                }
+                            }
+                        }
+                        .graphicsLayer(
+                            scaleX = pageScale,
+                            scaleY = pageScale,
+                            translationX = pageOffset.x,
+                            translationY = pageOffset.y
+                        )
                 ) {
                     Image(
                         bitmap = bitmap.asImageBitmap(),

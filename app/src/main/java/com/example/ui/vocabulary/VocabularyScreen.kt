@@ -21,6 +21,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
+import android.speech.tts.TextToSpeech
+import android.content.Intent
+import android.net.Uri
+import java.util.Locale
 import com.example.data.model.VocabularyWord
 import com.example.ui.theme.*
 import com.example.viewmodel.MainViewModel
@@ -31,8 +36,41 @@ fun VocabularyScreen(
     onBack: () -> Unit,
     viewModel: MainViewModel
 ) {
+    val context = LocalContext.current
     val vocabulary by viewModel.vocabulary.collectAsState()
     val dueForReview by viewModel.dueForReview.collectAsState()
+
+    var ttsRef = remember { mutableStateOf<TextToSpeech?>(null) }
+    
+    DisposableEffect(context) {
+        val tempTts = TextToSpeech(context) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                ttsRef.value?.language = Locale.GERMAN
+            }
+        }
+        ttsRef.value = tempTts
+        onDispose {
+            tempTts.shutdown()
+        }
+    }
+
+    val speakWord = { text: String ->
+        val hasArabic = text.any { it in '\u0600'..'\u06FF' }
+        ttsRef.value?.language = if (hasArabic) Locale("ar") else Locale.GERMAN
+        ttsRef.value?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "vocab_tts")
+    }
+
+    val openArabdict = { wordStr: String ->
+        try {
+            val intent = Intent(
+                Intent.ACTION_VIEW,
+                Uri.parse("https://www.arabdict.com/de/deutsch-arabisch/${Uri.encode(wordStr)}")
+            )
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
 
     var searchQuery by remember { mutableStateOf("") }
     var reviewModeActive by remember { mutableStateOf(false) }
@@ -184,7 +222,17 @@ fun VocabularyScreen(
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         items(displayedVocabulary) { word ->
-                            VocabularyItemCard(word = word)
+                            VocabularyItemCard(
+                                word = word,
+                                onClick = {
+                                    speakWord(word.originalWord)
+                                    openArabdict(word.originalWord)
+                                },
+                                onDictClick = {
+                                    speakWord(word.originalWord)
+                                    openArabdict(word.originalWord)
+                                }
+                            )
                         }
                     }
                 }
@@ -208,12 +256,18 @@ fun VocabularyScreen(
 }
 
 @Composable
-fun VocabularyItemCard(word: VocabularyWord) {
+fun VocabularyItemCard(
+    word: VocabularyWord,
+    onClick: () -> Unit,
+    onDictClick: () -> Unit
+) {
     Card(
         colors = CardDefaults.cardColors(containerColor = DarkSurface),
         border = BorderStroke(1.dp, if (word.isMastered) SuccessGreen.copy(alpha = 0.5f) else DarkBorder),
         shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
@@ -221,12 +275,30 @@ fun VocabularyItemCard(word: VocabularyWord) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    word.originalWord,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        word.originalWord,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    
+                    IconButton(
+                        onClick = onDictClick,
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Language,
+                            contentDescription = "قاموس Arabdict",
+                            tint = AccentCyan,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+                
                 Text(
                     word.translatedWord,
                     fontSize = 17.sp,
