@@ -9,7 +9,24 @@ import androidx.fragment.app.FragmentActivity
 class AppBiometricManager(private val context: Context) {
 
     // ===== Check availability =====
+    fun isEmulator(): Boolean {
+        val buildDetails = (android.os.Build.FINGERPRINT + " " +
+                android.os.Build.MODEL + " " +
+                android.os.Build.MANUFACTURER + " " +
+                android.os.Build.HARDWARE + " " +
+                android.os.Build.PRODUCT).lowercase()
+        return buildDetails.contains("emulator") ||
+                buildDetails.contains("sdk") ||
+                buildDetails.contains("generic") ||
+                buildDetails.contains("google_sdk") ||
+                buildDetails.contains("vbox") ||
+                buildDetails.contains("subsystem") ||
+                (android.os.Build.BRAND.startsWith("generic") && android.os.Build.DEVICE.startsWith("generic")) ||
+                "google_sdk" == android.os.Build.PRODUCT
+    }
+
     fun isBiometricAvailable(): Boolean {
+        if (isEmulator()) return false
         return try {
             val manager = BiometricManager.from(context)
             manager.canAuthenticate(
@@ -22,6 +39,7 @@ class AppBiometricManager(private val context: Context) {
     }
 
     fun getBiometricStatus(): String {
+        if (isEmulator()) return "غير مدعوم بالمحاكي"
         return try {
             val manager = BiometricManager.from(context)
             when (manager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG)) {

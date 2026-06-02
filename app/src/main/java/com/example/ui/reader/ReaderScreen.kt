@@ -149,24 +149,18 @@ fun ReaderScreen(
 
     // Lazy load List State for WPS Style continuous paging
     val lazyListState = rememberLazyListState()
-    var isProgrammaticScroll by remember { mutableStateOf(false) }
 
     // Synchronize scroll gestures to current page index active
-    LaunchedEffect(lazyListState.firstVisibleItemIndex) {
-        if (pageCount > 0 && !isProgrammaticScroll) {
+    LaunchedEffect(lazyListState.firstVisibleItemIndex, lazyListState.isScrollInProgress) {
+        if (pageCount > 0 && lazyListState.isScrollInProgress) {
             viewModel.setPage(lazyListState.firstVisibleItemIndex)
         }
     }
 
     // Handle jumping to page programmatically
     LaunchedEffect(currentPage) {
-        if (pageCount > 0 && lazyListState.firstVisibleItemIndex != currentPage) {
-            isProgrammaticScroll = true
-            try {
-                lazyListState.scrollToItem(currentPage)
-            } finally {
-                isProgrammaticScroll = false
-            }
+        if (pageCount > 0 && !lazyListState.isScrollInProgress && lazyListState.firstVisibleItemIndex != currentPage) {
+            lazyListState.scrollToItem(currentPage)
         }
     }
 
