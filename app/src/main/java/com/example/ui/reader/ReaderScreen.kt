@@ -461,7 +461,7 @@ fun ReaderScreen(
                                         if (deltaPages != 0) {
                                             val currentVal = viewModel.currentPage.value
                                             val maxVal = viewModel.pageCount.value
-                                            val targetPage = (currentVal + deltaPages).coerceIn(0, maxVal - 1)
+                                            val targetPage = (currentVal + deltaPages).coerceIn(0, (maxVal - 1).coerceAtLeast(0))
                                             if (targetPage != currentVal) {
                                                 viewModel.setPage(targetPage)
                                                 coroutineScope.launch {
