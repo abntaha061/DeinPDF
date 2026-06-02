@@ -105,6 +105,7 @@ fun ReaderScreen(
     var textAnnotationInput by remember { mutableStateOf("") }
 
     var activeStickyNoteToShow by remember { mutableStateOf<PdfAnnotation?>(null) }
+    var isDraggingScrollbar by remember { mutableStateOf(false) }
 
     // Immersive Fullscreen Controller
     LaunchedEffect(Unit) {
@@ -344,8 +345,7 @@ fun ReaderScreen(
                             // 5. TTS Volume
                             IconButton(
                                 onClick = { 
-                                    val promptText = "نطق الصفحة رقم ${currentPage + 1}"
-                                    viewModel.toggleTts(context, promptText)
+                                    viewModel.toggleTts(context, currentPage)
                                     showToolbarTemporarily()
                                 }
                             ) {
@@ -435,7 +435,8 @@ fun ReaderScreen(
             }
 
             // WPS Premium Scrollbar Navigator widget over the screen
-            if (isToolbarVisible && pageCount > 1) {
+            if ((isToolbarVisible || isDraggingScrollbar) && pageCount > 1) {
+                var dragYAccumulator by remember { mutableStateOf(0f) }
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
@@ -443,7 +444,35 @@ fun ReaderScreen(
                         .padding(end = 10.dp)
                         .width(44.dp)
                         .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(22.dp))
-                        .padding(vertical = 14.dp),
+                        .padding(vertical = 14.dp)
+                        .pointerInput(pageCount) {
+                            detectDragGestures(
+                                onDragStart = { 
+                                    isDraggingScrollbar = true
+                                    dragYAccumulator = 0f
+                                    showToolbarTemporarily()
+                                },
+                                onDrag = { change, dragAmount ->
+                                    change.consume()
+                                    dragYAccumulator += dragAmount.y
+                                    val step = 35f
+                                    if (java.lang.Math.abs(dragYAccumulator) >= step) {
+                                        val deltaPages = (dragYAccumulator / step).toInt()
+                                        if (deltaPages != 0) {
+                                            val targetPage = (currentPage + deltaPages).coerceIn(0, pageCount - 1)
+                                            if (targetPage != currentPage) {
+                                                viewModel.setPage(targetPage)
+                                            }
+                                            dragYAccumulator %= step
+                                        }
+                                    }
+                                    showToolbarTemporarily()
+                                },
+                                onDragEnd = {
+                                    isDraggingScrollbar = false
+                                }
+                            )
+                        },
                     contentAlignment = Alignment.Center
                 ) {
                     Column(
@@ -466,7 +495,7 @@ fun ReaderScreen(
                         Box(
                             modifier = Modifier
                                 .size(36.dp)
-                                .background(AccentBlue, CircleShape),
+                                .background(if (isDraggingScrollbar) SuccessGreen else AccentBlue, CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
@@ -542,11 +571,11 @@ fun ReaderScreen(
             // Selection Translation Popup Cards
             AnimatedVisibility(
                 visible = showTranslationCard && translationResult != null,
-                enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-                exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+                enter = fadeIn(),
+                exit = fadeOut(),
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth(0.92f)
+                    .align(Alignment.Center)
                     .padding(16.dp)
             ) {
                 translationResult?.let { result ->

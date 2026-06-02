@@ -40,7 +40,7 @@ class ReaderViewModel(
     private val _currentPage = MutableStateFlow(0)
     val currentPage: StateFlow<Int> = _currentPage.asStateFlow()
 
-    private val _isToolbarVisible = MutableStateFlow(true)
+    private val _isToolbarVisible = MutableStateFlow(false)
     val isToolbarVisible: StateFlow<Boolean> = _isToolbarVisible.asStateFlow()
 
     private val _zoomLevel = MutableStateFlow(1f)
@@ -196,15 +196,54 @@ class ReaderViewModel(
 
     // ===== Intercept word under touch coordinates =====
     fun translateWordAtOffset(offset: Offset, pageIndex: Int) {
-        // Simple mock extraction fallback for instant, responsive translation popups
-        val mockGermanWord = when((pageIndex + offset.x.toInt()) % 5) {
-            0 -> "Aufgabe"
-            1 -> "Lernen"
-            2 -> "Ausbildung"
-            3 -> "Erfolg"
-            else -> "Sprache"
+        viewModelScope.launch {
+            try {
+                val uri = pdfUri
+                if (uri != null) {
+                    val bitmap = bitmapCache[pageIndex] ?: getPageBitmap(uri, pageIndex)
+                    if (bitmap != null) {
+                        val ocrResult = ocrManager.recognizeText(bitmap, com.example.utils.OcrLanguage.AUTO)
+                        // Find a bounding block enclosing the tapped coordinates (or close enough)
+                        val tappedBlock = ocrResult.blocks.find { block ->
+                            val rect = block.boundingBox
+                            rect != null && rect.contains(offset.x.toInt(), offset.y.toInt())
+                        }
+                        
+                        var textToTranslate = tappedBlock?.text ?: ""
+                        if (textToTranslate.isBlank()) {
+                            // Find closest word/block
+                            val closestBlock = ocrResult.blocks.minByOrNull { block ->
+                                val rect = block.boundingBox ?: return@minByOrNull Float.MAX_VALUE
+                                val dx = rect.centerX() - offset.x
+                                val dy = rect.centerY() - offset.y
+                                dx * dx + dy * dy
+                            }
+                            textToTranslate = closestBlock?.text ?: ""
+                        }
+
+                        // If we have some clean extracted text, translate it!
+                        if (textToTranslate.isNotBlank()) {
+                            // Trim to useful length
+                            val cleanWord = textToTranslate.split(Regex("\\s+")).firstOrNull { it.isNotBlank() } ?: textToTranslate
+                            translateText(cleanWord)
+                            return@launch
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+
+            // Fallback mock vocabulary words if OCR finds nothing
+            val mockGermanWord = when((pageIndex + offset.x.toInt()) % 5) {
+                0 -> "Aufgabe"
+                1 -> "Lernen"
+                2 -> "Ausbildung"
+                3 -> "Erfolg"
+                else -> "Sprache"
+            }
+            translateText(mockGermanWord)
         }
-        translateText(mockGermanWord)
     }
 
     fun translateText(text: String) {
@@ -272,21 +311,42 @@ class ReaderViewModel(
     }
 
     // ===== Background speech engine service triggers =====
-    fun toggleTts(context: Context, fullTextOnPage: String) {
+    fun toggleTts(context: Context, pageIndex: Int) {
         if (_isTtsPlaying.value) {
             tts?.stop()
             _isTtsPlaying.value = false
         } else {
-            val textToSpeak = fullTextOnPage.ifBlank { "Seite ${currentPage.value + 1}" }
-            startTts(context, textToSpeak)
+            viewModelScope.launch {
+                try {
+                    val uri = pdfUri
+                    if (uri != null) {
+                        val bitmap = bitmapCache[pageIndex] ?: getPageBitmap(uri, pageIndex)
+                        if (bitmap != null) {
+                            val ocrResult = ocrManager.recognizeText(bitmap, com.example.utils.OcrLanguage.AUTO)
+                            val textToSpeak = ocrResult.fullText
+                            if (textToSpeak.isNotBlank()) {
+                                startTts(context, textToSpeak)
+                                return@launch
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+
+                startTts(context, "Seite ${pageIndex + 1}")
+            }
         }
     }
 
     private fun startTts(context: Context, text: String) {
+        val hasArabic = text.any { it in '\u0600'..'\u06FF' }
+        val targetLocale = if (hasArabic) Locale("ar") else Locale.GERMAN
+
         if (tts == null) {
             tts = TextToSpeech(context) { status ->
                 if (status == TextToSpeech.SUCCESS) {
-                    tts?.language = Locale.GERMAN
+                    tts?.language = targetLocale
                     tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                         override fun onStart(utteranceId: String?) { _isTtsPlaying.value = true }
                         override fun onDone(utteranceId: String?) { _isTtsPlaying.value = false }
@@ -297,6 +357,7 @@ class ReaderViewModel(
                 }
             }
         } else {
+            tts?.language = targetLocale
             tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "reader_tts")
             _isTtsPlaying.value = true
         }
