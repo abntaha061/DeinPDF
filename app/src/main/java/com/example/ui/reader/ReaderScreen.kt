@@ -1,6 +1,7 @@
 package com.example.ui.reader
 
 import android.app.Activity
+import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.speech.tts.TextToSpeech
@@ -19,8 +20,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -76,6 +79,9 @@ fun ReaderScreen(
     val currentPage by viewModel.currentPage.collectAsState()
     val isToolbarVisible by viewModel.isToolbarVisible.collectAsState()
     val currentTool by viewModel.currentTool.collectAsState()
+    var isEditingMode by remember { mutableStateOf(false) }
+    var scale by remember { mutableStateOf(1f) }
+    var offset by remember { mutableStateOf(Offset.Zero) }
 
     val translationResult by viewModel.translationResult.collectAsState()
     val showTranslationCard by viewModel.showTranslationCard.collectAsState()
@@ -133,9 +139,11 @@ fun ReaderScreen(
     val showToolbarTemporarily: () -> Unit = {
         viewModel.showToolbar(true)
         autoHideJob?.cancel()
-        autoHideJob = coroutineScope.launch {
-            delay(3500)
-            viewModel.showToolbar(false)
+        if (!isEditingMode) {
+            autoHideJob = coroutineScope.launch {
+                delay(3500)
+                viewModel.showToolbar(false)
+            }
         }
     }
 
@@ -160,7 +168,7 @@ fun ReaderScreen(
         containerColor = DarkBg,
         topBar = {
             AnimatedVisibility(
-                visible = isToolbarVisible,
+                visible = isToolbarVisible || isEditingMode,
                 enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
                 exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut()
             ) {
@@ -224,7 +232,7 @@ fun ReaderScreen(
         },
         bottomBar = {
             AnimatedVisibility(
-                visible = isToolbarVisible,
+                visible = isToolbarVisible || isEditingMode,
                 enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
                 exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
             ) {
@@ -266,114 +274,206 @@ fun ReaderScreen(
 
                         Spacer(modifier = Modifier.height(10.dp))
 
-                        // WPS Tools Action Bar
+                        // WPS Tools Action Bar Redesigned (Clickable Columns for auto-adapting labels, no Arabic clipping)
                         Row(
                             horizontalArrangement = Arrangement.SpaceEvenly,
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             // 1. Highlight
-                            IconButton(
-                                onClick = { 
-                                    viewModel.setTool(ReaderTool.HIGHLIGHT)
-                                    showToolbarTemporarily()
-                                },
-                                modifier = Modifier.background(
-                                    if (currentTool == ReaderTool.HIGHLIGHT) AccentBlue.copy(alpha = 0.2f) else Color.Transparent,
-                                    RoundedCornerShape(8.dp)
-                                )
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(
+                                        if (currentTool == ReaderTool.HIGHLIGHT) AccentBlue.copy(alpha = 0.2f) else Color.Transparent
+                                    )
+                                    .clickable { 
+                                        viewModel.setTool(ReaderTool.HIGHLIGHT)
+                                        isEditingMode = true
+                                        showToolbarTemporarily()
+                                    }
+                                    .padding(vertical = 8.dp, horizontal = 4.dp)
                             ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Icon(Icons.Default.BorderColor, contentDescription = "تمييز", tint = if (currentTool == ReaderTool.HIGHLIGHT) Gold else Color.White)
-                                    Text("تمييز ورقي", fontSize = 9.sp, color = if (currentTool == ReaderTool.HIGHLIGHT) Gold else Color.White)
-                                }
+                                Icon(
+                                    Icons.Default.BorderColor, 
+                                    contentDescription = "تمييز", 
+                                    tint = if (currentTool == ReaderTool.HIGHLIGHT) Gold else Color.White,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    "تمييز ورقي", 
+                                    fontSize = 11.sp, 
+                                    color = if (currentTool == ReaderTool.HIGHLIGHT) Gold else Color.White,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Visible,
+                                    textAlign = TextAlign.Center
+                                )
                             }
                             
                             // 2. Ink Draw
-                            IconButton(
-                                onClick = { 
-                                    viewModel.setTool(ReaderTool.DRAW)
-                                    showToolbarTemporarily()
-                                },
-                                modifier = Modifier.background(
-                                    if (currentTool == ReaderTool.DRAW) AccentBlue.copy(alpha = 0.2f) else Color.Transparent,
-                                    RoundedCornerShape(8.dp)
-                                )
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(
+                                        if (currentTool == ReaderTool.DRAW) AccentBlue.copy(alpha = 0.2f) else Color.Transparent
+                                    )
+                                    .clickable { 
+                                        viewModel.setTool(ReaderTool.DRAW)
+                                        isEditingMode = true
+                                        showToolbarTemporarily()
+                                    }
+                                    .padding(vertical = 8.dp, horizontal = 4.dp)
                             ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Icon(Icons.Default.Gesture, contentDescription = "رسم حر", tint = if (currentTool == ReaderTool.DRAW) AccentCyan else Color.White)
-                                    Text("رسم حر", fontSize = 9.sp, color = if (currentTool == ReaderTool.DRAW) AccentCyan else Color.White)
-                                }
+                                Icon(
+                                    Icons.Default.Gesture, 
+                                    contentDescription = "رسم حر", 
+                                    tint = if (currentTool == ReaderTool.DRAW) AccentCyan else Color.White,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    "رسم حر", 
+                                    fontSize = 11.sp, 
+                                    color = if (currentTool == ReaderTool.DRAW) AccentCyan else Color.White,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Visible,
+                                    textAlign = TextAlign.Center
+                                )
                             }
 
                             // 3. Text note
-                            IconButton(
-                                onClick = { 
-                                    viewModel.setTool(ReaderTool.NOTE)
-                                    annotationSubTool = "text"
-                                    showToolbarTemporarily()
-                                },
-                                modifier = Modifier.background(
-                                    if (currentTool == ReaderTool.NOTE && annotationSubTool == "text") AccentBlue.copy(alpha = 0.2f) else Color.Transparent,
-                                    RoundedCornerShape(8.dp)
-                                )
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(
+                                        if (currentTool == ReaderTool.NOTE && annotationSubTool == "text") AccentBlue.copy(alpha = 0.2f) else Color.Transparent
+                                    )
+                                    .clickable { 
+                                        viewModel.setTool(ReaderTool.NOTE)
+                                        annotationSubTool = "text"
+                                        isEditingMode = true
+                                        showToolbarTemporarily()
+                                    }
+                                    .padding(vertical = 8.dp, horizontal = 4.dp)
                             ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Icon(Icons.Default.TextFields, contentDescription = "كتابة نص", tint = if (currentTool == ReaderTool.NOTE && annotationSubTool == "text") AccentPurple else Color.White)
-                                    Text("أضف نص", fontSize = 9.sp, color = if (currentTool == ReaderTool.NOTE && annotationSubTool == "text") AccentPurple else Color.White)
-                                }
+                                Icon(
+                                    Icons.Default.TextFields, 
+                                    contentDescription = "كتابة نص", 
+                                    tint = if (currentTool == ReaderTool.NOTE && annotationSubTool == "text") AccentPurple else Color.White,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    "أضف نص", 
+                                    fontSize = 11.sp, 
+                                    color = if (currentTool == ReaderTool.NOTE && annotationSubTool == "text") AccentPurple else Color.White,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Visible,
+                                    textAlign = TextAlign.Center
+                                )
                             }
 
                             // 4. Sticky note
-                            IconButton(
-                                onClick = { 
-                                    viewModel.setTool(ReaderTool.NOTE)
-                                    annotationSubTool = "sticky"
-                                    showToolbarTemporarily()
-                                },
-                                modifier = Modifier.background(
-                                    if (currentTool == ReaderTool.NOTE && annotationSubTool == "sticky") AccentBlue.copy(alpha = 0.2f) else Color.Transparent,
-                                    RoundedCornerShape(8.dp)
-                                )
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(
+                                        if (currentTool == ReaderTool.NOTE && annotationSubTool == "sticky") AccentBlue.copy(alpha = 0.2f) else Color.Transparent
+                                    )
+                                    .clickable { 
+                                        viewModel.setTool(ReaderTool.NOTE)
+                                        annotationSubTool = "sticky"
+                                        isEditingMode = true
+                                        showToolbarTemporarily()
+                                    }
+                                    .padding(vertical = 8.dp, horizontal = 4.dp)
                             ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Icon(Icons.Default.PinDrop, contentDescription = "ملاحظة ملصقة", tint = if (currentTool == ReaderTool.NOTE && annotationSubTool == "sticky") Gold else Color.White)
-                                    Text("ملاحظة", fontSize = 9.sp, color = if (currentTool == ReaderTool.NOTE && annotationSubTool == "sticky") Gold else Color.White)
-                                }
+                                Icon(
+                                    Icons.Default.PinDrop, 
+                                    contentDescription = "ملاحظة ملصقة", 
+                                    tint = if (currentTool == ReaderTool.NOTE && annotationSubTool == "sticky") Gold else Color.White,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    "ملاحظة", 
+                                    fontSize = 11.sp, 
+                                    color = if (currentTool == ReaderTool.NOTE && annotationSubTool == "sticky") Gold else Color.White,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Visible,
+                                    textAlign = TextAlign.Center
+                                )
                             }
 
-                            // 5. TTS Volume
-                            IconButton(
-                                onClick = { 
-                                    viewModel.toggleTts(context, currentPage)
-                                    showToolbarTemporarily()
-                                }
+                            // 5. TTS Voice
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { 
+                                        viewModel.toggleTts(context, currentPage)
+                                        showToolbarTemporarily()
+                                    }
+                                    .padding(vertical = 8.dp, horizontal = 4.dp)
                             ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Icon(
-                                        if (isTtsPlaying) Icons.Default.VolumeUp else Icons.Default.VolumeMute,
-                                        contentDescription = "استماع للألماني",
-                                        tint = if (isTtsPlaying) SuccessGreen else Color.White
-                                    )
-                                    Text(if (isTtsPlaying) "إيقاف" else "نطق الصفحة", fontSize = 9.sp, color = if (isTtsPlaying) SuccessGreen else Color.White)
-                                }
+                                Icon(
+                                    if (isTtsPlaying) Icons.Default.VolumeUp else Icons.Default.VolumeMute,
+                                    contentDescription = "استماع للألماني",
+                                    tint = if (isTtsPlaying) SuccessGreen else Color.White,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    if (isTtsPlaying) "إيقاف" else "نطق الصفحة", 
+                                    fontSize = 11.sp, 
+                                    color = if (isTtsPlaying) SuccessGreen else Color.White,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Visible,
+                                    textAlign = TextAlign.Center
+                                )
                             }
 
                             // 6. Translator Text Select Touch
-                            IconButton(
-                                onClick = { 
-                                    viewModel.setTool(ReaderTool.TRANSLATE)
-                                    showToolbarTemporarily()
-                                },
-                                modifier = Modifier.background(
-                                    if (currentTool == ReaderTool.TRANSLATE) AccentBlue.copy(alpha = 0.2f) else Color.Transparent,
-                                    RoundedCornerShape(8.dp)
-                                )
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(
+                                        if (currentTool == ReaderTool.TRANSLATE) AccentBlue.copy(alpha = 0.2f) else Color.Transparent
+                                    )
+                                    .clickable { 
+                                        viewModel.setTool(ReaderTool.TRANSLATE)
+                                        isEditingMode = true
+                                        showToolbarTemporarily()
+                                    }
+                                    .padding(vertical = 8.dp, horizontal = 4.dp)
                             ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Icon(Icons.Default.Translate, contentDescription = "مترجم ذكي", tint = if (currentTool == ReaderTool.TRANSLATE) Gold else Color.White)
-                                    Text("مترجم", fontSize = 9.sp, color = if (currentTool == ReaderTool.TRANSLATE) Gold else Color.White)
-                                }
+                                Icon(
+                                    Icons.Default.Translate, 
+                                    contentDescription = "مترجم", 
+                                    tint = if (currentTool == ReaderTool.TRANSLATE) Gold else Color.White,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    "مترجم", 
+                                    fontSize = 11.sp, 
+                                    color = if (currentTool == ReaderTool.TRANSLATE) Gold else Color.White,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Visible,
+                                    textAlign = TextAlign.Center
+                                )
                             }
                         }
                     }
@@ -393,8 +493,38 @@ fun ReaderScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .pointerInput(Unit) {
-                            detectTapGestures {
-                                showToolbarTemporarily()
+                            detectTransformGestures { _, pan, zoom, _ ->
+                                scale = (scale * zoom).coerceIn(1f, 4f)
+                                if (scale > 1f) {
+                                    offset = Offset(
+                                        x = offset.x + pan.x,
+                                        y = offset.y + pan.y
+                                    )
+                                } else {
+                                    offset = Offset.Zero
+                                }
+                            }
+                        }
+                        .graphicsLayer(
+                            scaleX = scale,
+                            scaleY = scale,
+                            translationX = offset.x,
+                            translationY = offset.y
+                        )
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            if (isEditingMode) {
+                                isEditingMode = false
+                                viewModel.setTool(ReaderTool.NONE)
+                                viewModel.showToolbar(false)
+                            } else {
+                                if (isToolbarVisible) {
+                                    viewModel.showToolbar(false)
+                                } else {
+                                    showToolbarTemporarily()
+                                }
                             }
                         },
                     contentPadding = PaddingValues(bottom = 120.dp, top = 8.dp)
@@ -435,7 +565,7 @@ fun ReaderScreen(
             }
 
             // WPS Premium Scrollbar Navigator widget over the screen
-            if ((isToolbarVisible || isDraggingScrollbar) && pageCount > 1) {
+            if ((isToolbarVisible || isEditingMode || isDraggingScrollbar) && pageCount > 1) {
                 var dragYAccumulator by remember { mutableStateOf(0f) }
                 Box(
                     modifier = Modifier
@@ -500,7 +630,7 @@ fun ReaderScreen(
                         Box(
                             modifier = Modifier
                                 .size(36.dp)
-                                .background(if (isDraggingScrollbar) SuccessGreen else AccentBlue, CircleShape),
+                                .background(if (isDraggingScrollbar) SuccessGreen else Gold, CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
@@ -612,7 +742,23 @@ fun ReaderScreen(
                             Spacer(modifier = Modifier.height(8.dp))
                             
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color.White.copy(alpha = 0.05f))
+                                    .clickable {
+                                        viewModel.speak(result.originalWord, context)
+                                        try {
+                                            val intent = Intent(
+                                                Intent.ACTION_VIEW,
+                                                Uri.parse("https://www.arabdict.com/de/deutsch-arabisch/${Uri.encode(result.originalWord)}")
+                                            )
+                                            context.startActivity(intent)
+                                        } catch (e: Exception) {
+                                            e.printStackTrace()
+                                        }
+                                    }
+                                    .padding(12.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -688,30 +834,60 @@ fun ReaderScreen(
 
                             Spacer(modifier = Modifier.height(16.dp))
                             
-                            Row(
+                            Column(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Button(
                                     onClick = { 
                                         viewModel.saveWord(result)
                                     },
                                     colors = ButtonDefaults.buttonColors(containerColor = Gold),
-                                    modifier = Modifier.weight(1f).testTag("btn_add_vocabulary")
+                                    modifier = Modifier.fillMaxWidth().testTag("btn_add_vocabulary")
                                 ) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Icon(Icons.Default.BookmarkAdd, contentDescription = null, tint = Color.Black)
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("حفظ في مفرداتي المراجعة", color = Color.Black, fontWeight = FontWeight.Bold)
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("حفظ في مفرداتي المراجعة", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                     }
                                 }
-                                
-                                OutlinedButton(
-                                    onClick = { viewModel.speak(result.originalWord, context) },
-                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                                    border = BorderStroke(1.dp, AccentCyan)
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Icon(Icons.Default.VolumeUp, contentDescription = "استماع", tint = AccentCyan)
+                                    OutlinedButton(
+                                        onClick = { 
+                                            viewModel.speak(result.originalWord, context)
+                                            try {
+                                                val intent = Intent(
+                                                    Intent.ACTION_VIEW,
+                                                    Uri.parse("https://www.arabdict.com/de/deutsch-arabisch/${Uri.encode(result.originalWord)}")
+                                                )
+                                                context.startActivity(intent)
+                                            } catch (e: Exception) {
+                                                e.printStackTrace()
+                                            }
+                                        },
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentCyan),
+                                        border = BorderStroke(1.dp, AccentCyan),
+                                        modifier = Modifier.weight(1f).testTag("btn_arabdict_lookup")
+                                    ) {
+                                        Icon(Icons.Default.Language, contentDescription = "Arabdict", tint = AccentCyan)
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("قاموس Arabdict", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                    
+                                    OutlinedButton(
+                                        onClick = { viewModel.speak(result.originalWord, context) },
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                        border = BorderStroke(1.dp, AccentCyan),
+                                        modifier = Modifier.weight(0.4f)
+                                    ) {
+                                        Icon(Icons.Default.VolumeUp, contentDescription = "استماع", tint = AccentCyan)
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("نطق", fontSize = 13.sp)
+                                    }
                                 }
                             }
                         }
