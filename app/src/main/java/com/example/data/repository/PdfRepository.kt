@@ -185,21 +185,57 @@ class PdfRepository(
         }
     }
 
+    private fun openPfdForUri(uri: Uri): ParcelFileDescriptor? {
+        // First try to open via content resolver in a safe try-catch
+        try {
+            val pfd = context.contentResolver.openFileDescriptor(uri, "r")
+            if (pfd != null) return pfd
+        } catch (_: Exception) {}
+
+        // Fallback for direct local file paths, e.g. file:// scheme or plain path string
+        try {
+            val path = uri.path
+            if (path != null) {
+                val file = java.io.File(path)
+                if (file.exists()) {
+                    val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+                    if (pfd != null) return pfd
+                }
+            }
+            // Try raw uri string as path fallback
+            val rawPath = uri.toString()
+            val fileRaw = java.io.File(rawPath)
+            if (fileRaw.exists()) {
+                val pfd = ParcelFileDescriptor.open(fileRaw, ParcelFileDescriptor.MODE_READ_ONLY)
+                if (pfd != null) return pfd
+            }
+        } catch (_: Exception) {}
+
+        // Ultimate fallback: copy content to a local cache file and open it
+        try {
+            val tmpFile = java.io.File(context.cacheDir, "tmp_pdf_resolver_${System.currentTimeMillis()}.pdf")
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                tmpFile.outputStream().use { output -> input.copyTo(output) }
+            }
+            if (tmpFile.exists() && tmpFile.length() > 0) {
+                return ParcelFileDescriptor.open(tmpFile, ParcelFileDescriptor.MODE_READ_ONLY)
+            }
+        } catch (_: Exception) {}
+
+        return null
+    }
+
     suspend fun getPdfPageCount(uri: Uri): Int = withContext(Dispatchers.IO) {
         var pfd: ParcelFileDescriptor? = null
         var renderer: PdfRenderer? = null
         try {
-            pfd = try {
-                context.contentResolver.openFileDescriptor(uri, "r")
-            } catch (e: Exception) {
-                null
+            pfd = openPfdForUri(uri)
+            if (pfd != null) {
+                renderer = PdfRenderer(pfd)
+                renderer.pageCount
+            } else {
+                0
             }
-            if (pfd == null) {
-                val localFile = copyUriToLocalFile(uri) ?: return@withContext 0
-                pfd = ParcelFileDescriptor.open(localFile, ParcelFileDescriptor.MODE_READ_ONLY)
-            }
-            renderer = PdfRenderer(pfd!!)
-            renderer.pageCount
         } catch (e: Exception) {
             e.printStackTrace()
             0
@@ -214,16 +250,11 @@ class PdfRepository(
             var pfd: ParcelFileDescriptor? = null
             var renderer: PdfRenderer? = null
             try {
-                pfd = try {
-                    context.contentResolver.openFileDescriptor(uri, "r")
-                } catch (e: Exception) {
-                    null
-                }
+                pfd = openPfdForUri(uri)
                 if (pfd == null) {
-                    val localFile = copyUriToLocalFile(uri) ?: return@withContext null
-                    pfd = ParcelFileDescriptor.open(localFile, ParcelFileDescriptor.MODE_READ_ONLY)
+                    return@withContext null
                 }
-                renderer = PdfRenderer(pfd!!)
+                renderer = PdfRenderer(pfd)
                 if (pageIndex < 0 || pageIndex >= renderer.pageCount) {
                     return@withContext null
                 }
