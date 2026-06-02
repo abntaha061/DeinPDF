@@ -241,8 +241,8 @@ fun ReaderScreen(
                     modifier = Modifier.fillMaxWidth(),
                     tonalElevation = 8.dp
                 ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        // Slider progress row
+                    Column(modifier = Modifier.padding(start = 12.dp, top = 12.dp, end = 12.dp, bottom = 24.dp)) {
+                        // Page navigation indicator row
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
@@ -251,28 +251,26 @@ fun ReaderScreen(
                                 if (currentPage > 0) viewModel.setPage(currentPage - 1)
                             })
                             
-                            Slider(
-                                value = if (pageCount > 1) currentPage.toFloat() / (pageCount - 1) else 0f,
-                                onValueChange = { value ->
-                                    val targetPage = (value * (pageCount - 1)).toInt()
-                                    viewModel.setPage(targetPage)
-                                },
+                            Box(
                                 modifier = Modifier
                                     .weight(1f)
                                     .padding(horizontal = 12.dp),
-                                colors = SliderDefaults.colors(
-                                    thumbColor = AccentBlue,
-                                    activeTrackColor = AccentBlue,
-                                    inactiveTrackColor = DarkBorder
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "الصفحة ${currentPage + 1} من $pageCount",
+                                    color = Color.White,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
                                 )
-                            )
+                            }
                             
                             Text("التالي", color = Color.White, fontSize = 12.sp, modifier = Modifier.clickable {
                                 if (currentPage < pageCount - 1) viewModel.setPage(currentPage + 1)
                             })
                         }
 
-                        Spacer(modifier = Modifier.height(10.dp))
+                        Spacer(modifier = Modifier.height(14.dp))
 
                         // WPS Tools Action Bar Redesigned (Clickable Columns for auto-adapting labels, no Arabic clipping)
                         Row(
@@ -306,10 +304,12 @@ fun ReaderScreen(
                                 Text(
                                     "تمييز ورقي", 
                                     fontSize = 11.sp, 
+                                    lineHeight = 16.sp,
                                     color = if (currentTool == ReaderTool.HIGHLIGHT) Gold else Color.White,
                                     maxLines = 1,
                                     overflow = TextOverflow.Visible,
-                                    textAlign = TextAlign.Center
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(bottom = 6.dp)
                                 )
                             }
                             
@@ -339,10 +339,12 @@ fun ReaderScreen(
                                 Text(
                                     "رسم حر", 
                                     fontSize = 11.sp, 
+                                    lineHeight = 16.sp,
                                     color = if (currentTool == ReaderTool.DRAW) AccentCyan else Color.White,
                                     maxLines = 1,
                                     overflow = TextOverflow.Visible,
-                                    textAlign = TextAlign.Center
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(bottom = 6.dp)
                                 )
                             }
 
@@ -373,10 +375,12 @@ fun ReaderScreen(
                                 Text(
                                     "أضف نص", 
                                     fontSize = 11.sp, 
+                                    lineHeight = 16.sp,
                                     color = if (currentTool == ReaderTool.NOTE && annotationSubTool == "text") AccentPurple else Color.White,
                                     maxLines = 1,
                                     overflow = TextOverflow.Visible,
-                                    textAlign = TextAlign.Center
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(bottom = 6.dp)
                                 )
                             }
 
@@ -407,10 +411,12 @@ fun ReaderScreen(
                                 Text(
                                     "ملاحظة", 
                                     fontSize = 11.sp, 
+                                    lineHeight = 16.sp,
                                     color = if (currentTool == ReaderTool.NOTE && annotationSubTool == "sticky") Gold else Color.White,
                                     maxLines = 1,
                                     overflow = TextOverflow.Visible,
-                                    textAlign = TextAlign.Center
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(bottom = 6.dp)
                                 )
                             }
 
@@ -442,10 +448,12 @@ fun ReaderScreen(
                                 Text(
                                     "مترجم", 
                                     fontSize = 11.sp, 
+                                    lineHeight = 16.sp,
                                     color = if (currentTool == ReaderTool.TRANSLATE) Gold else Color.White,
                                     maxLines = 1,
                                     overflow = TextOverflow.Visible,
-                                    textAlign = TextAlign.Center
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(bottom = 6.dp)
                                 )
                             }
                         }
@@ -1011,6 +1019,7 @@ fun PdfPageRenderItem(
     }
 
     val density = LocalDensity.current
+    val context = LocalContext.current
     val annotations by viewModel.annotations.collectAsState()
     val currentInkPoints = remember { mutableStateListOf<Offset>() }
 
@@ -1042,24 +1051,116 @@ fun PdfPageRenderItem(
                         .fillMaxWidth()
                         .aspectRatio(aspect)
                         .onSizeChanged { containerSize = it }
-                        .pointerInput(Unit) {
-                            detectTransformGestures { centroid, pan, zoom, _ ->
-                                val oldScale = pageScale
-                                val newScale = (pageScale * zoom).coerceIn(1f, 4f)
-                                val effectiveZoom = newScale / oldScale
-                                
-                                if (newScale > 1f) {
-                                    val rawOffset = (pageOffset - centroid) * effectiveZoom + centroid + pan
-                                    val maxX = (containerSize.width * (newScale - 1f)) / 2f
-                                    val maxY = (containerSize.height * (newScale - 1f)) / 2f
-                                    pageOffset = Offset(
-                                        x = rawOffset.x.coerceIn(-maxX, maxX),
-                                        y = rawOffset.y.coerceIn(-maxY, maxY)
-                                    )
-                                } else {
-                                    pageOffset = Offset.Zero
+                        .pointerInput(currentTool, annotationSubTool, pageScale, pageOffset) {
+                            awaitEachGesture {
+                                var isMultiTouch = false
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                var tapEventDetected = true
+                                val touchSlop = viewConfiguration.touchSlop
+                                var accumulatedPan = Offset.Zero
+                                var accumulatedZoom = 1f
+                                var pastTouchSlop = false
+
+                                do {
+                                    val event = awaitPointerEvent()
+                                    val changes = event.changes
+                                    if (changes.size > 1) {
+                                        isMultiTouch = true
+                                        tapEventDetected = false
+                                    }
+
+                                    val isAnyPressed = changes.any { it.pressed }
+                                    if (!isAnyPressed) break
+
+                                    val canceled = changes.any { it.isConsumed }
+                                    if (canceled) {
+                                        tapEventDetected = false
+                                        break
+                                    }
+
+                                    if (isMultiTouch || pageScale > 1f) {
+                                        val zoomChange = event.calculateZoom()
+                                        val panChange = event.calculatePan()
+                                        val centroid = event.calculateCentroid(useCurrent = false)
+
+                                        if (!pastTouchSlop) {
+                                            accumulatedPan += panChange
+                                            accumulatedZoom *= zoomChange
+                                            val panMotion = accumulatedPan.getDistance()
+                                            val zoomMotion = kotlin.math.abs(1f - accumulatedZoom) * event.calculateCentroidSize(useCurrent = false)
+
+                                            if (panMotion > touchSlop || zoomMotion > touchSlop) {
+                                                pastTouchSlop = true
+                                            }
+                                        }
+
+                                        if (pastTouchSlop) {
+                                            val oldScale = pageScale
+                                            val newScale = (pageScale * zoomChange).coerceIn(1f, 4f)
+                                            val effectiveZoom = newScale / oldScale
+
+                                            if (newScale > 1f) {
+                                                val centroidInAspected = centroid - Offset(containerSize.width / 2f, containerSize.height / 2f)
+                                                pageOffset = (pageOffset - centroidInAspected) * effectiveZoom + centroidInAspected + panChange
+
+                                                val maxX = (containerSize.width * (newScale - 1f)) / 2f
+                                                val maxY = (containerSize.height * (newScale - 1f)) / 2f
+                                                pageOffset = Offset(
+                                                    x = pageOffset.x.coerceIn(-maxX, maxX),
+                                                    y = pageOffset.y.coerceIn(-maxY, maxY)
+                                                )
+                                            } else {
+                                                pageOffset = Offset.Zero
+                                            }
+                                            pageScale = newScale
+
+                                            changes.forEach {
+                                                it.consume()
+                                            }
+                                            tapEventDetected = false
+                                        }
+                                    } else {
+                                        val panChange = event.calculatePan()
+                                        accumulatedPan += panChange
+                                        if (accumulatedPan.getDistance() > touchSlop) {
+                                            tapEventDetected = false
+                                        }
+                                    }
+                                } while (event.changes.any { it.pressed })
+
+                                if (tapEventDetected && !isMultiTouch) {
+                                    val tapOffset = down.position
+                                    when (currentTool) {
+                                        ReaderTool.NONE, ReaderTool.TRANSLATE -> {
+                                            val canvasSize = Size(containerSize.width.toFloat(), containerSize.height.toFloat())
+                                            viewModel.translateWordAtOffset(tapOffset, canvasSize, pageIndex, context)
+                                        }
+                                        ReaderTool.HIGHLIGHT -> {
+                                            viewModel.addAnnotation(
+                                                PdfAnnotation(
+                                                    pdfId = viewModel.pdfId,
+                                                    page = pageIndex,
+                                                    type = AnnotationType.HIGHLIGHT,
+                                                    x = tapOffset.x - 70f,
+                                                    y = tapOffset.y - 14f,
+                                                    width = 140f,
+                                                    height = 28f,
+                                                    colorHex = "#fbbf24"
+                                                )
+                                            )
+                                        }
+                                        ReaderTool.NOTE -> {
+                                            if (annotationSubTool == "sticky") {
+                                                onAddStickyNote(pageIndex, tapOffset)
+                                            } else {
+                                                onAddText(pageIndex, tapOffset)
+                                            }
+                                        }
+                                        else -> {
+                                            onShowToolbar()
+                                        }
+                                    }
                                 }
-                                pageScale = newScale
                             }
                         }
                         .graphicsLayer(
@@ -1080,46 +1181,6 @@ fun PdfPageRenderItem(
                     Canvas(
                         modifier = Modifier
                             .fillMaxSize()
-                            .pointerInput(currentTool, annotationSubTool) {
-                                detectTapGestures(
-                                    onTap = { tapOffset ->
-                                        when (currentTool) {
-                                            ReaderTool.NONE -> {
-                                                onShowToolbar()
-                                            }
-                                            ReaderTool.HIGHLIGHT -> {
-                                                // Create highlight band at selected tap y coordinate
-                                                viewModel.addAnnotation(
-                                                    PdfAnnotation(
-                                                        pdfId = viewModel.pdfId,
-                                                        page = pageIndex,
-                                                        type = AnnotationType.HIGHLIGHT,
-                                                        x = tapOffset.x - 70f,
-                                                        y = tapOffset.y - 14f,
-                                                        width = 140f,
-                                                        height = 28f,
-                                                        colorHex = "#fbbf24"
-                                                    )
-                                                )
-                                            }
-                                            ReaderTool.TRANSLATE -> {
-                                                val canvasSize = Size(size.width.toFloat(), size.height.toFloat())
-                                                viewModel.translateWordAtOffset(tapOffset, canvasSize, pageIndex)
-                                            }
-                                            ReaderTool.NOTE -> {
-                                                if (annotationSubTool == "sticky") {
-                                                    onAddStickyNote(pageIndex, tapOffset)
-                                                } else {
-                                                    onAddText(pageIndex, tapOffset)
-                                                }
-                                            }
-                                            else -> {
-                                                onShowToolbar()
-                                            }
-                                        }
-                                    }
-                                )
-                            }
                             .pointerInput(currentTool) {
                                 if (currentTool == ReaderTool.DRAW) {
                                     detectDragGestures(

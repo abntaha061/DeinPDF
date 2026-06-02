@@ -204,7 +204,7 @@ class ReaderViewModel(
     }
 
     // ===== Intercept word under touch coordinates =====
-    fun translateWordAtOffset(offset: Offset, canvasSize: androidx.compose.ui.geometry.Size, pageIndex: Int) {
+    fun translateWordAtOffset(offset: Offset, canvasSize: androidx.compose.ui.geometry.Size, pageIndex: Int, context: Context) {
         viewModelScope.launch {
             try {
                 val uri = pdfUri
@@ -240,6 +240,7 @@ class ReaderViewModel(
                             // Trim to useful length
                             val cleanWord = textToTranslate.split(Regex("\\s+")).firstOrNull { it.isNotBlank() } ?: textToTranslate
                             translateText(cleanWord)
+                            speak(cleanWord, context)
                             return@launch
                         }
                     }
@@ -257,6 +258,7 @@ class ReaderViewModel(
                 else -> "Sprache"
             }
             translateText(mockGermanWord)
+            speak(mockGermanWord, context)
         }
     }
 
