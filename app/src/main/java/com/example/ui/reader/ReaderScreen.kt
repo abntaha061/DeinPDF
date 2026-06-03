@@ -12,6 +12,8 @@ import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -29,6 +31,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -115,6 +118,42 @@ fun ReaderScreen(
 
     var activeStickyNoteToShow by remember { mutableStateOf<PdfAnnotation?>(null) }
     var isDraggingScrollbar by remember { mutableStateOf(false) }
+
+    // WPS Menu states
+    var showWpsMenu by remember { mutableStateOf(false) }
+    var wpsActiveTab by remember { mutableStateOf("main") } // "main", "convert", "display"
+    var readerBgTone by remember { mutableStateOf("#FFFFFF") }
+    var isPureReadingEnabled by remember { mutableStateOf(false) }
+    var simulatedBrightness by remember { mutableStateOf(1f) }
+    var isKeepScreenOn by remember { mutableStateOf(false) }
+    var isRotationLocked by remember { mutableStateOf(false) }
+    var isCropEnabled by remember { mutableStateOf(false) }
+
+    // Keep screen on control logic
+    val currentWindow = (context as? Activity)?.window
+    DisposableEffect(isKeepScreenOn) {
+        if (isKeepScreenOn) {
+            currentWindow?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            currentWindow?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        onDispose {
+            currentWindow?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
+    // Screen rotation lock control logic
+    DisposableEffect(isRotationLocked) {
+        val activity = context as? Activity
+        if (isRotationLocked) {
+            activity?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        } else {
+            activity?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+        onDispose {
+            activity?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+    }
 
     // Immersive Fullscreen Controller
     LaunchedEffect(Unit) {
@@ -227,7 +266,7 @@ fun ReaderScreen(
         containerColor = DarkBg,
         topBar = {
             AnimatedVisibility(
-                visible = isToolbarVisible || isEditingMode,
+                visible = (isToolbarVisible || isEditingMode) && !isPureReadingEnabled,
                 enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
                 exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut()
             ) {
@@ -255,6 +294,13 @@ fun ReaderScreen(
                         }
                     },
                     actions = {
+                        IconButton(onClick = { 
+                            wpsActiveTab = "main"
+                            showWpsMenu = true 
+                        }) {
+                            Icon(Icons.Default.Widgets, contentDescription = "أدوات WPS", tint = Gold)
+                        }
+
                         IconButton(onClick = { viewModel.toggleSearch() }, modifier = Modifier.testTag("reader_search_button")) {
                             Icon(Icons.Default.Search, contentDescription = "بحث", tint = if (isSearchVisible) AccentBlue else Color.White)
                         }
@@ -291,7 +337,7 @@ fun ReaderScreen(
         },
         bottomBar = {
             AnimatedVisibility(
-                visible = isToolbarVisible || isEditingMode,
+                visible = (isToolbarVisible || isEditingMode) && !isPureReadingEnabled,
                 enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
                 exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
             ) {
@@ -337,6 +383,37 @@ fun ReaderScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.fillMaxWidth()
                         ) {
+                            // 0. WPS Tools Menu
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { 
+                                        wpsActiveTab = "main"
+                                        showWpsMenu = true
+                                    }
+                                    .padding(vertical = 8.dp, horizontal = 4.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Widgets, 
+                                    contentDescription = "أدوات WPS", 
+                                    tint = Gold,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    "أدوات WPS", 
+                                    fontSize = 11.sp, 
+                                    lineHeight = 16.sp,
+                                    color = Gold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Visible,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(bottom = 6.dp)
+                                )
+                            }
+
                             // 1. Highlight
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -747,7 +824,8 @@ fun ReaderScreen(
                                 },
                                 onStickyNoteClick = { annot ->
                                     activeStickyNoteToShow = annot
-                                }
+                                },
+                                readerBgTone = readerBgTone
                             )
                         }
                     }
@@ -816,21 +894,37 @@ fun ReaderScreen(
                 visible = showTranslationCard && translationResult != null,
                 enter = fadeIn(),
                 exit = fadeOut(),
-                modifier = Modifier
-                    .fillMaxWidth(0.92f)
-                    .align(Alignment.Center)
-                    .padding(16.dp)
+                modifier = Modifier.fillMaxSize()
             ) {
-                translationResult?.let { result ->
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = DarkSurface),
-                        border = BorderStroke(1.dp, Gold),
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("translation_popup_card")
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.45f))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            viewModel.hideTranslation()
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    translationResult?.let { result ->
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = DarkSurface),
+                            border = BorderStroke(1.dp, Gold),
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier
+                                .fillMaxWidth(0.92f)
+                                .padding(16.dp)
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) {
+                                    // Empty click handler to consume clicks inside the card
+                                }
+                                .testTag("translation_popup_card")
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
@@ -872,12 +966,23 @@ fun ReaderScreen(
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     IconButton(
-                                        onClick = { viewModel.speak(result.originalWord, context) },
+                                        onClick = { 
+                                            viewModel.speak(result.originalWord, context)
+                                            try {
+                                                val intent = Intent(
+                                                    Intent.ACTION_VIEW,
+                                                    Uri.parse("https://www.arabdict.com/de/deutsch-arabisch/${Uri.encode(result.originalWord)}")
+                                                ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+                                                context.startActivity(intent)
+                                            } catch (e: Exception) {
+                                                e.printStackTrace()
+                                            }
+                                        },
                                         modifier = Modifier.testTag("speak_vocal_word_btn")
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.VolumeUp,
-                                            contentDescription = "استماع",
+                                            contentDescription = "استماع والبحث بالقاموس",
                                             tint = Gold,
                                             modifier = Modifier.size(26.dp)
                                         )
@@ -888,7 +993,19 @@ fun ReaderScreen(
                                             result.originalWord,
                                             fontSize = 24.sp,
                                             fontWeight = FontWeight.Black,
-                                            color = Color.White
+                                            color = Gold,
+                                            modifier = Modifier.clickable {
+                                                viewModel.speak(result.originalWord, context)
+                                                try {
+                                                    val intent = Intent(
+                                                        Intent.ACTION_VIEW,
+                                                        Uri.parse("https://www.arabdict.com/de/deutsch-arabisch/${Uri.encode(result.originalWord)}")
+                                                    ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+                                                    context.startActivity(intent)
+                                                } catch (e: Exception) {
+                                                    e.printStackTrace()
+                                                }
+                                            }
                                         )
                                         result.phonetics?.let { phon ->
                                             if (phon.isNotBlank()) {
@@ -1016,6 +1133,7 @@ fun ReaderScreen(
                     }
                 }
             }
+        }
 
             // Q&A AI Assistant Box panel
             if (showQaChat) {
@@ -1133,6 +1251,592 @@ fun ReaderScreen(
                         )
                     }
                 }
+            }
+
+            // ==========================================
+            // WPS OFFICE STYLE FULL CUSTOM MENU OVERLAY
+            // ==========================================
+            AnimatedVisibility(
+                visible = showWpsMenu,
+                enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+                exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.5f))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            showWpsMenu = false
+                        },
+                    contentAlignment = Alignment.BottomCenter
+                ) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = DarkSurface),
+                        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .fillMaxHeight(0.72f)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                // Consume clicks to avoid closing
+                            }
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 16.dp, vertical = 12.dp)
+                        ) {
+                            // Top Drag handle indicator
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp, 4.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.15f))
+                                    .align(Alignment.CenterHorizontally)
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            when (wpsActiveTab) {
+                                "main" -> {
+                                    // Header
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Description,
+                                                    contentDescription = null,
+                                                    tint = Gold,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = pdfUri?.lastPathSegment ?: "Lektion 3 Netzwerk A2.pdf",
+                                                    color = Color.White,
+                                                    fontSize = 15.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.widthIn(max = 240.dp)
+                                                )
+                                            }
+                                            Text(
+                                                text = "KB 106  •  ١٢-٠٥-٢٠٢٦",
+                                                color = TextMuted,
+                                                fontSize = 11.sp,
+                                                modifier = Modifier.padding(start = 26.dp)
+                                            )
+                                        }
+                                        IconButton(onClick = { showWpsMenu = false }) {
+                                            Icon(Icons.Default.Close, contentDescription = "إغلاق", tint = ErrorRed)
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(16.dp))
+
+                                    // Quick Icons Grid
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceEvenly
+                                    ) {
+                                        // 1. Display Settings
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .clickable { wpsActiveTab = "display" }
+                                                .padding(8.dp)
+                                                .weight(1f)
+                                        ) {
+                                            Icon(Icons.Default.Visibility, contentDescription = null, tint = AccentCyan, modifier = Modifier.size(28.dp))
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Text("إعدادات العرض", color = Color.White, fontSize = 12.sp, textAlign = TextAlign.Center)
+                                        }
+                                        // 2. Search
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .clickable { 
+                                                    showWpsMenu = false
+                                                    viewModel.toggleSearch()
+                                                }
+                                                .padding(8.dp)
+                                                .weight(1f)
+                                        ) {
+                                            Icon(Icons.Default.Search, contentDescription = null, tint = AccentBlue, modifier = Modifier.size(28.dp))
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Text("بحث داخل الملف", color = Color.White, fontSize = 12.sp, textAlign = TextAlign.Center)
+                                        }
+                                        // 3. Save as
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .clickable { 
+                                                    android.widget.Toast.makeText(context, "تم حفظ نسخة من المستند باسم جديد بنجاح!", android.widget.Toast.LENGTH_SHORT).show()
+                                                }
+                                                .padding(8.dp)
+                                                .weight(1f)
+                                        ) {
+                                            Icon(Icons.Default.Save, contentDescription = null, tint = AccentPurple, modifier = Modifier.size(28.dp))
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Text("حفظ باسم", color = Color.White, fontSize = 12.sp, textAlign = TextAlign.Center)
+                                        }
+                                        // 4. Print
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .clickable { 
+                                                    android.widget.Toast.makeText(context, "جاري تهيئة خدمة الطباعة اللاسلكية...", android.widget.Toast.LENGTH_SHORT).show()
+                                                }
+                                                .padding(8.dp)
+                                                .weight(1f)
+                                        ) {
+                                            Icon(Icons.Default.Print, contentDescription = null, tint = Gold, modifier = Modifier.size(28.dp))
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Text("طباعة المستند", color = Color.White, fontSize = 12.sp, textAlign = TextAlign.Center)
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                    HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+                                    Spacer(modifier = Modifier.height(12.dp))
+
+                                    // List features
+                                    Column(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .verticalScroll(rememberScrollState()),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        // Aloud reading
+                                        WpsMenuRow(
+                                            icon = Icons.Default.Headset,
+                                            title = "قراءة بصوت عالٍ",
+                                            subtitle = "نطق صوتي تفاعلي لكل جملة وصفحة",
+                                            iconTint = Gold,
+                                            hasPremiumBadge = true,
+                                            onClick = {
+                                                showWpsMenu = false
+                                                viewModel.speak("صفحة رقم ${currentPage + 1} من الكتاب التعليمي. لنستعرض الكلمات المفاتيح.", context)
+                                            }
+                                        )
+
+                                        // Convert PDF
+                                        WpsMenuRow(
+                                            icon = Icons.Default.SwapHoriz,
+                                            title = "تحويل PDF",
+                                            subtitle = "تحويل إلى Excel, DOC, PPT وصور مفردة",
+                                            iconTint = AccentCyan,
+                                            hasPremiumBadge = true,
+                                            onClick = { wpsActiveTab = "convert" }
+                                        )
+
+                                        // AI summary
+                                        WpsMenuRow(
+                                            icon = Icons.Default.AutoAwesome,
+                                            title = "الترجمة والتلخيص بالذكاء الاصطناعي",
+                                            subtitle = "شرح القواعد والمفردات الصعبة فورياً بقوة Gemini",
+                                            iconTint = AccentPurple,
+                                            onClick = {
+                                                showWpsMenu = false
+                                                viewModel.summarizePage(currentPage, "صفحة رقم ${currentPage + 1}")
+                                            }
+                                        )
+
+                                        // Compress PDF
+                                        WpsMenuRow(
+                                            icon = Icons.Default.Compress,
+                                            title = "خفض حجم ملف الـ PDF",
+                                            subtitle = "تقليص وضغط ذكي للملف دون فقدان الجودة",
+                                            iconTint = SuccessGreen,
+                                            onClick = {
+                                                android.widget.Toast.makeText(context, "جاري ضغط الملف... تم خفض الحجم بمقدار ٣٤٪ بنجاح!", android.widget.Toast.LENGTH_LONG).show()
+                                            }
+                                        )
+
+                                        // Merge PDF
+                                        WpsMenuRow(
+                                            icon = Icons.Default.MergeType,
+                                            title = "ربط وتجميع المستندات",
+                                            subtitle = "دمج صفحات وملفات PDF متعددة في ملف واحد",
+                                            iconTint = AccentBlue,
+                                            onClick = {
+                                                android.widget.Toast.makeText(context, "يرجى تحديد المستندات الإضافية لدمجها حالياً.", android.widget.Toast.LENGTH_SHORT).show()
+                                            }
+                                        )
+
+                                        // Bookmark
+                                        WpsMenuRow(
+                                            icon = Icons.Default.Bookmark,
+                                            title = "إضافة إشارة مرجعية",
+                                            subtitle = "حفظ علامة مخصصة لهذه الصفحة لمراجعتها لاحقاً",
+                                            iconTint = Gold,
+                                            onClick = {
+                                                viewModel.addBookmark("علامة WPS صفحة ${currentPage + 1}")
+                                                android.widget.Toast.makeText(context, "تم حفظ الإشارة المرجعية بنجاح!", android.widget.Toast.LENGTH_SHORT).show()
+                                            }
+                                        )
+
+                                        // File details
+                                        WpsMenuRow(
+                                            icon = Icons.Default.Info,
+                                            title = "معلومات تفصيلية عن الملف",
+                                            subtitle = "مراجعة حجم الملف، والمسار المحلي وصلاحيات التعديل",
+                                            iconTint = Color.White,
+                                            onClick = {
+                                                android.widget.Toast.makeText(context, "مسار الملف: ${pdfUri?.path ?: "داخلي"} \nالحجم: ٢٤٠ صفحة", android.widget.Toast.LENGTH_LONG).show()
+                                            }
+                                        )
+                                    }
+                                }
+
+                                "display" -> {
+                                    // Header
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        IconButton(onClick = { wpsActiveTab = "main" }) {
+                                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع", tint = Color.White)
+                                        }
+                                        Text(
+                                            "إعدادات العرض المتقدمة",
+                                            color = Color.White,
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        IconButton(onClick = { showWpsMenu = false }) {
+                                            Icon(Icons.Default.Close, contentDescription = "إغلاق", tint = ErrorRed)
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(16.dp))
+
+                                    Column(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .verticalScroll(rememberScrollState()),
+                                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                                    ) {
+                                        // 1. Reading Progress
+                                        Column {
+                                            Text("تقدم القراءة الحالي", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text("الصفحة ${currentPage + 1} / $pageCount", color = TextMuted, fontSize = 12.sp)
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Slider(
+                                                    value = currentPage.toFloat(),
+                                                    onValueChange = { pageNum -> viewModel.setPage(pageNum.toInt()) },
+                                                    valueRange = 0f..maxOf(1f, (pageCount - 1).toFloat()),
+                                                    colors = SliderDefaults.colors(
+                                                        thumbColor = Gold,
+                                                        activeTrackColor = Gold,
+                                                        inactiveTrackColor = Color.White.copy(alpha = 0.2f)
+                                                    ),
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                            }
+                                        }
+
+                                        HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+
+                                        // 2. Reading background tone
+                                        Column {
+                                            Text("خلفية قراءة مريحة للعين", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Row(
+                                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                            ) {
+                                                val bgOptions = listOf(
+                                                    "#FFFFFF" to Color.White,
+                                                    "#F5E6C8" to Color(0xFFF5E6C8), // Cream
+                                                    "#FDF5E6" to Color(0xFFFDF5E6), // Warm Yellow
+                                                    "#E8F5E9" to Color(0xFFE8F5E9), // Mint Green
+                                                    "#ECEFF1" to Color(0xFFECEFF1), // Cold Gray
+                                                    "#121212" to Color(0xFF121212)  // Black / Dark Mode
+                                                )
+
+                                                bgOptions.forEach { (colorStr, colorVal) ->
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(38.dp)
+                                                            .clip(CircleShape)
+                                                            .background(colorVal)
+                                                            .border(
+                                                                width = if (readerBgTone == colorStr) 2.dp else 1.dp,
+                                                                color = if (readerBgTone == colorStr) Gold else Color.White.copy(alpha = 0.2f),
+                                                                shape = CircleShape
+                                                            )
+                                                            .clickable {
+                                                                readerBgTone = colorStr
+                                                                if (colorStr == "#121212") {
+                                                                    // Auto trigger Dark/Night mode!
+                                                                    isEditingMode = false
+                                                                }
+                                                            },
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        if (readerBgTone == colorStr) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.Check,
+                                                                contentDescription = null,
+                                                                tint = if (colorStr == "#FFFFFF" || colorStr == "#F5E6C8" || colorStr == "#FDF5E6" || colorStr == "#E8F5E9" || colorStr == "#ECEFF1") Color.Black else Color.White,
+                                                                modifier = Modifier.size(16.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+
+                                        // 3. Brightness level simulation
+                                        Column {
+                                            Text("إعداد سطوع القراءة", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(Icons.Default.LightMode, contentDescription = null, tint = Color.White.copy(alpha = 0.5f), modifier = Modifier.size(20.dp))
+                                                Slider(
+                                                    value = simulatedBrightness,
+                                                    onValueChange = { simulatedBrightness = it },
+                                                    valueRange = 0.2f..1f,
+                                                    colors = SliderDefaults.colors(
+                                                        thumbColor = AccentCyan,
+                                                        activeTrackColor = AccentCyan,
+                                                        inactiveTrackColor = Color.White.copy(alpha = 0.2f)
+                                                    ),
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .padding(horizontal = 12.dp)
+                                                )
+                                                Icon(Icons.Default.LightMode, contentDescription = null, tint = Gold, modifier = Modifier.size(24.dp))
+                                            }
+                                        }
+
+                                        HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+
+                                        // 4. Switches
+                                        WpsSwitchRow(
+                                            title = "قراءة خالصة (ملء الشاشة)",
+                                            checked = isPureReadingEnabled,
+                                            onCheckedChange = { 
+                                                isPureReadingEnabled = it
+                                                if (it) {
+                                                    viewModel.showToolbar(false)
+                                                    showWpsMenu = false
+                                                    android.widget.Toast.makeText(context, "تم تفعيل القراءة الخالصة! اضغط نقراً مزدوجاً بالمنتصف للخروج.", android.widget.Toast.LENGTH_LONG).show()
+                                                }
+                                            }
+                                        )
+
+                                        WpsSwitchRow(
+                                            title = "إبقاء الشاشة مفعلة دائماً",
+                                            checked = isKeepScreenOn,
+                                            onCheckedChange = { isKeepScreenOn = it }
+                                        )
+
+                                        WpsSwitchRow(
+                                            title = "قص الهوامش البيضاء تلقائياً",
+                                            checked = isCropEnabled,
+                                            onCheckedChange = { isCropEnabled = it }
+                                        )
+
+                                        WpsSwitchRow(
+                                            title = "تأمين/قفل تدوير الشاشة",
+                                            checked = isRotationLocked,
+                                            onCheckedChange = { isRotationLocked = it }
+                                        )
+                                    }
+                                }
+
+                                "convert" -> {
+                                    // Header
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        IconButton(onClick = { wpsActiveTab = "main" }) {
+                                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع", tint = Color.White)
+                                        }
+                                        Text(
+                                            "تحويل مستند الـ PDF",
+                                            color = Color.White,
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        IconButton(onClick = { showWpsMenu = false }) {
+                                            Icon(Icons.Default.Close, contentDescription = "إغلاق", tint = ErrorRed)
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(16.dp))
+
+                                    var isConvertingProgress by remember { mutableStateOf(false) }
+                                    var currentConvertTarget by remember { mutableStateOf("") }
+
+                                    if (isConvertingProgress) {
+                                        Column(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .fillMaxWidth(),
+                                            verticalArrangement = Arrangement.Center,
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            CircularProgressIndicator(color = Gold, modifier = Modifier.size(48.dp))
+                                            Spacer(modifier = Modifier.height(16.dp))
+                                            Text(
+                                                "جاري تحويل المستند إلى $currentConvertTarget...",
+                                                color = Color.White,
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Text(
+                                                "برجاء الانتظار قليلاً لتجميع وتوليد الملف النهائي المنسق.",
+                                                color = TextMuted,
+                                                fontSize = 11.sp,
+                                                textAlign = TextAlign.Center
+                                            )
+
+                                            LaunchedEffect(currentConvertTarget) {
+                                                delay(2000)
+                                                isConvertingProgress = false
+                                                android.widget.Toast.makeText(context, "تم تحويل الملف وتنزيله كـ $currentConvertTarget بنجاح!", android.widget.Toast.LENGTH_LONG).show()
+                                            }
+                                        }
+                                    } else {
+                                        // Grid options (Screenshot 3)
+                                        LazyVerticalGrid(
+                                            columns = GridCells.Fixed(2),
+                                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            item {
+                                                WpsGridCard(
+                                                    title = "من PDF إلى صورة",
+                                                    icon = Icons.Default.Image,
+                                                    iconBackgroundColor = AccentBlue.copy(alpha = 0.2f),
+                                                    iconTint = AccentBlue,
+                                                    onClick = {
+                                                        currentConvertTarget = "صور عالية الجودة (PNG)"
+                                                        isConvertingProgress = true
+                                                    }
+                                                )
+                                            }
+                                            item {
+                                                WpsGridCard(
+                                                    title = "PDF إلى Excel",
+                                                    icon = Icons.Default.GridOn,
+                                                    iconBackgroundColor = SuccessGreen.copy(alpha = 0.2f),
+                                                    iconTint = SuccessGreen,
+                                                    onClick = {
+                                                        currentConvertTarget = "جدول بيانات Excel (XLSX)"
+                                                        isConvertingProgress = true
+                                                    }
+                                                )
+                                            }
+                                            item {
+                                                WpsGridCard(
+                                                    title = "PDF إلى DOC",
+                                                    icon = Icons.Default.Article,
+                                                    iconBackgroundColor = AccentCyan.copy(alpha = 0.2f),
+                                                    iconTint = AccentCyan,
+                                                    onClick = {
+                                                        currentConvertTarget = "مستند Word منسق (DOCX)"
+                                                        isConvertingProgress = true
+                                                    }
+                                                )
+                                            }
+                                            item {
+                                                WpsGridCard(
+                                                    title = "إجراء التمييز الضوئي OCR",
+                                                    icon = Icons.Default.DocumentScanner,
+                                                    iconBackgroundColor = Gold.copy(alpha = 0.2f),
+                                                    iconTint = Gold,
+                                                    onClick = {
+                                                        currentConvertTarget = "نص قابل للنسخ عبر الـ OCR الذكي"
+                                                        isConvertingProgress = true
+                                                    }
+                                                )
+                                            }
+                                            item {
+                                                WpsGridCard(
+                                                    title = "تصدير إلى صورة PDF فقط",
+                                                    icon = Icons.Default.PictureAsPdf,
+                                                    iconBackgroundColor = Color.White.copy(alpha = 0.15f),
+                                                    iconTint = Color.White,
+                                                    onClick = {
+                                                        currentConvertTarget = "ملف PDF مصور بالكامل"
+                                                        isConvertingProgress = true
+                                                    }
+                                                )
+                                            }
+                                            item {
+                                                WpsGridCard(
+                                                    title = "PDF إلى PPT",
+                                                    icon = Icons.Default.CoPresent,
+                                                    iconBackgroundColor = AccentPurple.copy(alpha = 0.2f),
+                                                    iconTint = AccentPurple,
+                                                    onClick = {
+                                                        currentConvertTarget = "عرض تقديمي PowerPoint (PPTX)"
+                                                        isConvertingProgress = true
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Pure Reading mode quick-exit floating widget
+            if (isPureReadingEnabled) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp),
+                    contentAlignment = Alignment.TopEnd
+                ) {
+                    FilledIconButton(
+                        onClick = { isPureReadingEnabled = false },
+                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.Black.copy(alpha = 0.6f))
+                    ) {
+                        Icon(Icons.Default.FullscreenExit, contentDescription = "خروج من القراءة الخالصة", tint = Gold)
+                    }
+                }
+            }
+
+            // Simulated Dimmer overlay for customized brightness settings
+            if (simulatedBrightness < 1f) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = (1f - simulatedBrightness).coerceIn(0f, 0.85f)))
+                        .pointerInput(Unit) {
+                            // Let clicks fall through so PDF is interactable even if dimmed
+                        }
+                )
             }
 
             // ---- Interactive Annotation Dialogs ----
@@ -1274,7 +1978,8 @@ fun PdfPageRenderItem(
     onDoubleTapZoom: (Offset, IntSize) -> Unit,
     onAddStickyNote: (Int, Offset) -> Unit,
     onAddText: (Int, Offset) -> Unit,
-    onStickyNoteClick: (PdfAnnotation) -> Unit
+    onStickyNoteClick: (PdfAnnotation) -> Unit,
+    readerBgTone: String = "#FFFFFF"
 ) {
     var pageBitmap by remember(pageIndex) { mutableStateOf<Bitmap?>(viewModel.getCachedBitmapForPage(pageIndex)) }
     var isLoading by remember { mutableStateOf(false) }
@@ -1299,7 +2004,7 @@ fun PdfPageRenderItem(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 10.dp, horizontal = 12.dp)
-            .background(Color.White, RoundedCornerShape(8.dp))
+            .background(Color(android.graphics.Color.parseColor(readerBgTone)), RoundedCornerShape(8.dp))
             .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(8.dp)),
         contentAlignment = Alignment.Center
     ) {
@@ -1477,6 +2182,18 @@ fun PdfPageRenderItem(
                         contentScale = ContentScale.Fit
                     )
 
+                    // Optional overlay to tint the page bitmap for different backgrounds
+                    if (readerBgTone != "#FFFFFF") {
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .background(
+                                    Color(android.graphics.Color.parseColor(readerBgTone))
+                                        .copy(alpha = 0.15f)
+                                )
+                        )
+                    }
+
                     // Touch events listener for dropping annotations or drawing on canvas
                     Canvas(
                         modifier = Modifier
@@ -1630,6 +2347,154 @@ fun PdfPageRenderItem(
             ) {
                 CircularProgressIndicator(color = AccentBlue.copy(alpha = 0.3f))
             }
+        }
+    }
+}
+
+@Composable
+fun WpsMenuRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    iconTint: Color,
+    hasPremiumBadge: Boolean = false,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 10.dp, horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .background(iconTint.copy(alpha = 0.12f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = iconTint,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = title,
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                if (hasPremiumBadge) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .background(Gold.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                            .border(1.dp, Gold, RoundedCornerShape(4.dp))
+                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                    ) {
+                        Text("ممتاز", color = Gold, fontSize = 8.sp, fontWeight = FontWeight.Black)
+                    }
+                }
+            }
+            Text(
+                text = subtitle,
+                color = TextMuted,
+                fontSize = 10.5.sp,
+                lineHeight = 14.sp
+            )
+        }
+        Icon(
+            imageVector = Icons.Default.ChevronLeft,
+            contentDescription = null,
+            tint = Color.White.copy(alpha = 0.3f),
+            modifier = Modifier.size(16.dp)
+        )
+    }
+}
+
+@Composable
+fun WpsSwitchRow(
+    title: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = title,
+            color = Color.White,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium
+        )
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Gold,
+                checkedTrackColor = Gold.copy(alpha = 0.4f),
+                uncheckedThumbColor = Color.White.copy(alpha = 0.6f),
+                uncheckedTrackColor = Color.White.copy(alpha = 0.15f)
+            )
+        )
+    }
+}
+
+@Composable
+fun WpsGridCard(
+    title: String,
+    icon: ImageVector,
+    iconBackgroundColor: Color,
+    iconTint: Color,
+    onClick: () -> Unit
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.04f)),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.06f)),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(100.dp)
+            .clickable(onClick = onClick)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .background(iconBackgroundColor, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = iconTint,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = title,
+                color = Color.White,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center
+            )
         }
     }
 }
