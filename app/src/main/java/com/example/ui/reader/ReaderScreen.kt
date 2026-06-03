@@ -879,14 +879,15 @@ fun ReaderScreen(
                                             fontWeight = FontWeight.Black,
                                             color = Color.White
                                         )
-                                    result.phonetics?.let { phon ->
-                                        if (phon.isNotBlank()) {
-                                            Text(
-                                                phon,
-                                                fontSize = 13.sp,
-                                                color = AccentCyan,
-                                                fontWeight = FontWeight.Medium
-                                            )
+                                        result.phonetics?.let { phon ->
+                                            if (phon.isNotBlank()) {
+                                                Text(
+                                                    phon,
+                                                    fontSize = 13.sp,
+                                                    color = AccentCyan,
+                                                    fontWeight = FontWeight.Medium
+                                                )
+                                            }
                                         }
                                     }
                                 }

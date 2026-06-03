@@ -39,6 +39,47 @@ class PdfRepository(
     private val vocabularyDao = db.vocabularyDao()
     private val readHistoryDao = db.readHistoryDao()
 
+    // Reusable active PdfRenderer session to achieve fast 60FPS WPS Office style rendering
+    @Volatile
+    private var activeUri: Uri? = null
+    private var activePfd: ParcelFileDescriptor? = null
+    private var activeRenderer: PdfRenderer? = null
+
+    @Synchronized
+    private fun getCachedRenderer(uri: Uri): PdfRenderer? {
+        if (activeUri == uri && activeRenderer != null) {
+            return activeRenderer
+        }
+        closeActiveRendererInternal()
+        try {
+            val pfd = openPfdForUri(uri)
+            if (pfd != null) {
+                activeUri = uri
+                activePfd = pfd
+                activeRenderer = PdfRenderer(pfd)
+                return activeRenderer
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return null
+    }
+
+    private fun closeActiveRendererInternal() {
+        try { activeRenderer?.close() } catch (_: Exception) {}
+        try { activePfd?.close() } catch (_: Exception) {}
+        activeRenderer = null
+        activePfd = null
+        activeUri = null
+    }
+
+    fun closeSession() {
+        synchronized(this) {
+            closeActiveRendererInternal()
+        }
+    }
+
+
     // ========== Files ==========
     fun getAllFiles(): Flow<List<PdfFile>> = pdfFileDao.getAllFiles()
     fun getRecentFiles(): Flow<List<PdfFile>> = pdfFileDao.getRecent()
@@ -303,34 +344,28 @@ class PdfRepository(
 
     suspend fun renderPdfPage(uri: Uri, pageIndex: Int, width: Int): Bitmap? =
         withContext(Dispatchers.IO) {
-            var pfd: ParcelFileDescriptor? = null
-            var renderer: PdfRenderer? = null
-            try {
-                pfd = openPfdForUri(uri)
-                if (pfd == null) {
-                    return@withContext null
+            synchronized(this@PdfRepository) {
+                try {
+                    val renderer = getCachedRenderer(uri) ?: return@withContext null
+                    if (pageIndex < 0 || pageIndex >= renderer.pageCount) {
+                        return@withContext null
+                    }
+                    val page = renderer.openPage(pageIndex)
+                    val scale = width.toFloat() / page.width.coerceAtLeast(1)
+                    val height = (page.height * scale).toInt().coerceAtLeast(1)
+                    val bitmapWidth = width.coerceAtLeast(1)
+                    val bitmap = Bitmap.createBitmap(bitmapWidth, height, Bitmap.Config.ARGB_8888)
+                    bitmap.eraseColor(android.graphics.Color.WHITE)
+                    page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                    page.close()
+                    bitmap
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    null
                 }
-                renderer = PdfRenderer(pfd)
-                if (pageIndex < 0 || pageIndex >= renderer.pageCount) {
-                    return@withContext null
-                }
-                val page = renderer.openPage(pageIndex)
-                val scale = width.toFloat() / page.width.coerceAtLeast(1)
-                val height = (page.height * scale).toInt().coerceAtLeast(1)
-                val bitmapWidth = width.coerceAtLeast(1)
-                val bitmap = Bitmap.createBitmap(bitmapWidth, height, Bitmap.Config.ARGB_8888)
-                bitmap.eraseColor(android.graphics.Color.WHITE)
-                page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                page.close()
-                bitmap
-            } catch (e: Exception) {
-                e.printStackTrace()
-                null
-            } finally {
-                try { renderer?.close() } catch (_: Exception) {}
-                try { pfd?.close() } catch (_: Exception) {}
             }
         }
+
 
     private suspend fun generateThumbnail(uri: Uri, name: String): String =
         withContext(Dispatchers.IO) {

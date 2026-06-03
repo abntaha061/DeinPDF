@@ -158,8 +158,12 @@ class ReaderViewModel(
             launch {
                 repository.getAllAnnotations(id).collect { _annotations.value = it }
             }
+
+            // Prefetch initial pages surrounding the current page
+            prefetchSurroundingPages(uri, _currentPage.value)
         }
     }
+
 
     fun addAnnotation(annotation: PdfAnnotation) {
         viewModelScope.launch {
@@ -178,13 +182,16 @@ class ReaderViewModel(
     }
 
     fun setPage(page: Int) {
-        _currentPage.value = page.coerceIn(0, (_pageCount.value - 1).coerceAtLeast(0))
+        val sanitizedPage = page.coerceIn(0, (_pageCount.value - 1).coerceAtLeast(0))
+        _currentPage.value = sanitizedPage
         viewModelScope.launch {
             if (pdfId > 0) {
-                repository.updateProgress(pdfId, _currentPage.value, _pageCount.value)
+                repository.updateProgress(pdfId, sanitizedPage, _pageCount.value)
             }
         }
+        pdfUri?.let { prefetchSurroundingPages(it, sanitizedPage) }
     }
+
 
     fun toggleToolbar() {
         _isToolbarVisible.value = !_isToolbarVisible.value
@@ -197,22 +204,56 @@ class ReaderViewModel(
     fun zoomIn() { _zoomLevel.value = (_zoomLevel.value * 1.25f).coerceAtMost(5f) }
     fun zoomOut() { _zoomLevel.value = (_zoomLevel.value / 1.25f).coerceAtLeast(0.25f) }
 
-    // Renders high-def page dynamically on the fly
+    // Renders high-def page dynamically on the fly with smart distance-eviction cache
     suspend fun getPageBitmap(uri: Uri, pageIndex: Int): Bitmap? {
-        bitmapCache[pageIndex]?.let { return it }
+        synchronized(bitmapCache) {
+            bitmapCache[pageIndex]?.let { return it }
+        }
         val bm = repository.renderPdfPage(uri, pageIndex, 1080)
         bm?.let { 
-            // Memory Eviction Strategy: Evict oldest bitmap if cache size exceeds 5
-            if (bitmapCache.size >= 5) {
-                val oldestKey = bitmapCache.keys.firstOrNull()
-                if (oldestKey != null) {
-                    bitmapCache.remove(oldestKey)
+            synchronized(bitmapCache) {
+                // If cache exceeds limit, evict the bitmap furthest from the current page
+                if (bitmapCache.size >= 15) {
+                    val current = _currentPage.value
+                    val furthestKey = bitmapCache.keys.maxByOrNull { kotlin.math.abs(it - current) }
+                    if (furthestKey != null) {
+                        bitmapCache.remove(furthestKey)
+                    }
                 }
+                bitmapCache[pageIndex] = it 
             }
-            bitmapCache[pageIndex] = it 
         }
         return bm
     }
+
+    // Prefetches neighbouring pages on background I/O thread to prepare them for seamless scrolling
+    private fun prefetchSurroundingPages(uri: Uri, pageIndex: Int) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val total = _pageCount.value
+            val indicesToPrefetch = listOf(pageIndex + 1, pageIndex + 2, pageIndex - 1)
+            for (idx in indicesToPrefetch) {
+                if (idx in 0 until total) {
+                    val alreadyCached = synchronized(bitmapCache) { bitmapCache.containsKey(idx) }
+                    if (!alreadyCached) {
+                        val bm = repository.renderPdfPage(uri, idx, 1080)
+                        bm?.let {
+                            synchronized(bitmapCache) {
+                                if (bitmapCache.size >= 15) {
+                                    val current = _currentPage.value
+                                    val furthestKey = bitmapCache.keys.maxByOrNull { kotlin.math.abs(it - current) }
+                                    if (furthestKey != null) {
+                                        bitmapCache.remove(furthestKey)
+                                    }
+                                }
+                                bitmapCache[idx] = it
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
 
     // ===== Intercept word under touch coordinates =====
     fun translateWordAtOffset(offset: Offset, canvasSize: androidx.compose.ui.geometry.Size, pageIndex: Int, context: Context) {
@@ -542,8 +583,13 @@ class ReaderViewModel(
         super.onCleared()
         tts?.stop()
         tts?.shutdown()
-        bitmapCache.clear()
+        synchronized(bitmapCache) {
+            bitmapCache.clear()
+        }
         pageLinksCache.clear()
+        
+        // Cleanly close the active PDF renderer session and file descriptor handles
+        repository.closeSession()
 
         // Track and save read session history
         val duration = System.currentTimeMillis() - readStartTime
@@ -553,4 +599,5 @@ class ReaderViewModel(
             }
         }
     }
+
 }
