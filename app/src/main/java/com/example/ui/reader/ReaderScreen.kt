@@ -157,6 +157,15 @@ fun ReaderScreen(
     var containerSize by remember { mutableStateOf(IntSize.Zero) }
     var isGestureActive by remember { mutableStateOf(false) }
 
+    var settledScale by remember { mutableStateOf(1f) }
+    LaunchedEffect(isGestureActive, docScale) {
+        if (!isGestureActive) {
+            // Wait 300ms for active zoom gesture to settle before requesting high-def rendering
+            kotlinx.coroutines.delay(300)
+            settledScale = docScale
+        }
+    }
+
     val animatedDocScale by animateFloatAsState(
         targetValue = docScale,
         animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
@@ -720,6 +729,7 @@ fun ReaderScreen(
                                 pdfUri = pdfUri,
                                 currentTool = currentTool,
                                 annotationSubTool = annotationSubTool,
+                                settledScale = settledScale,
                                 onShowToolbar = showToolbarTemporarily,
                                 onDoubleTapZoom = onDoubleTapZoomPage,
                                 onAddStickyNote = { idx, offset ->
@@ -1258,6 +1268,7 @@ fun PdfPageRenderItem(
     pdfUri: Uri,
     currentTool: ReaderTool,
     annotationSubTool: String,
+    settledScale: Float,
     onShowToolbar: () -> Unit,
     onDoubleTapZoom: (Offset, IntSize) -> Unit,
     onAddStickyNote: (Int, Offset) -> Unit,
@@ -1267,10 +1278,11 @@ fun PdfPageRenderItem(
     var pageBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var isLoading by remember { mutableStateOf(false) }
 
-    // Load page bitmap dynamically on-demand
-    LaunchedEffect(pageIndex, pdfUri) {
+    // Load page bitmap dynamically on-demand with settledScale
+    LaunchedEffect(pageIndex, pdfUri, settledScale) {
         isLoading = true
-        pageBitmap = viewModel.getPageBitmap(pdfUri, pageIndex)
+        val targetWidth = (1080 * settledScale).toInt().coerceIn(540, 3240)
+        pageBitmap = viewModel.getPageBitmap(pdfUri, pageIndex, targetWidth)
         isLoading = false
     }
 

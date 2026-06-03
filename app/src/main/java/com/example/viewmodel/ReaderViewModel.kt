@@ -120,8 +120,14 @@ class ReaderViewModel(
     val showQaChat: StateFlow<Boolean> = _showQaChat.asStateFlow()
 
     // Cache of already rendered high definition pages
-    private val bitmapCache = mutableMapOf<Int, Bitmap>()
+    private val bitmapCache = mutableMapOf<String, Bitmap>()
     private var readStartTime = System.currentTimeMillis()
+
+    private fun getCachedBitmapForPage(pageIndex: Int): Bitmap? {
+        return synchronized(bitmapCache) {
+            bitmapCache.entries.firstOrNull { it.key.startsWith("${pageIndex}_") }?.value
+        }
+    }
 
     // Page links cache
     private val pageLinksCache = mutableMapOf<Int, List<com.example.data.repository.PdfLink>>()
@@ -205,22 +211,26 @@ class ReaderViewModel(
     fun zoomOut() { _zoomLevel.value = (_zoomLevel.value / 1.25f).coerceAtLeast(0.25f) }
 
     // Renders high-def page dynamically on the fly with smart distance-eviction cache
-    suspend fun getPageBitmap(uri: Uri, pageIndex: Int): Bitmap? {
+    suspend fun getPageBitmap(uri: Uri, pageIndex: Int, targetWidth: Int = 1080): Bitmap? {
+        val cacheKey = "${pageIndex}_$targetWidth"
         synchronized(bitmapCache) {
-            bitmapCache[pageIndex]?.let { return it }
+            bitmapCache[cacheKey]?.let { return it }
         }
-        val bm = repository.renderPdfPage(uri, pageIndex, 1080)
+        val bm = repository.renderPdfPage(uri, pageIndex, targetWidth)
         bm?.let { 
             synchronized(bitmapCache) {
                 // If cache exceeds limit, evict the bitmap furthest from the current page
                 if (bitmapCache.size >= 15) {
                     val current = _currentPage.value
-                    val furthestKey = bitmapCache.keys.maxByOrNull { kotlin.math.abs(it - current) }
+                    val furthestKey = bitmapCache.keys.maxByOrNull { key ->
+                        val keyPageIndex = key.substringBefore('_').toIntOrNull() ?: 0
+                        kotlin.math.abs(keyPageIndex - current)
+                    }
                     if (furthestKey != null) {
                         bitmapCache.remove(furthestKey)
                     }
                 }
-                bitmapCache[pageIndex] = it 
+                bitmapCache[cacheKey] = it 
             }
         }
         return bm
@@ -233,19 +243,25 @@ class ReaderViewModel(
             val indicesToPrefetch = listOf(pageIndex + 1, pageIndex + 2, pageIndex - 1)
             for (idx in indicesToPrefetch) {
                 if (idx in 0 until total) {
-                    val alreadyCached = synchronized(bitmapCache) { bitmapCache.containsKey(idx) }
+                    val defaultCacheKey = "${idx}_1080"
+                    val alreadyCached = synchronized(bitmapCache) {
+                        bitmapCache.containsKey(defaultCacheKey) || bitmapCache.keys.any { it.startsWith("${idx}_") }
+                    }
                     if (!alreadyCached) {
                         val bm = repository.renderPdfPage(uri, idx, 1080)
                         bm?.let {
                             synchronized(bitmapCache) {
                                 if (bitmapCache.size >= 15) {
                                     val current = _currentPage.value
-                                    val furthestKey = bitmapCache.keys.maxByOrNull { kotlin.math.abs(it - current) }
+                                    val furthestKey = bitmapCache.keys.maxByOrNull { key ->
+                                        val keyPageIndex = key.substringBefore('_').toIntOrNull() ?: 0
+                                        kotlin.math.abs(keyPageIndex - current)
+                                    }
                                     if (furthestKey != null) {
                                         bitmapCache.remove(furthestKey)
                                     }
                                 }
-                                bitmapCache[idx] = it
+                                bitmapCache[defaultCacheKey] = it
                             }
                         }
                     }
@@ -315,7 +331,7 @@ class ReaderViewModel(
                 // 2. OCR Fallback for static elements (if no link is clicked)
                 val uri = pdfUri
                 if (uri != null) {
-                    val bitmap = bitmapCache[pageIndex] ?: getPageBitmap(uri, pageIndex)
+                    val bitmap = getCachedBitmapForPage(pageIndex) ?: getPageBitmap(uri, pageIndex)
                     if (bitmap != null && canvasSize.width > 0f && canvasSize.height > 0f) {
                         val scaleX = bitmap.width.toFloat() / canvasSize.width
                         val scaleY = bitmap.height.toFloat() / canvasSize.height
@@ -442,7 +458,7 @@ class ReaderViewModel(
                 try {
                     val uri = pdfUri
                     if (uri != null) {
-                        val bitmap = bitmapCache[pageIndex] ?: getPageBitmap(uri, pageIndex)
+                        val bitmap = getCachedBitmapForPage(pageIndex) ?: getPageBitmap(uri, pageIndex)
                         if (bitmap != null) {
                             val ocrResult = ocrManager.recognizeText(bitmap, com.example.utils.OcrLanguage.AUTO)
                             val textToSpeak = ocrResult.fullText
