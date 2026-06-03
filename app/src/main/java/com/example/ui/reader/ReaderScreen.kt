@@ -24,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -198,13 +199,12 @@ fun ReaderScreen(
             val tapInContainerX = (tapOffset.x / pageSize.width.coerceAtLeast(1)) * width
             val tapInContainerY = (tapOffset.y / pageSize.height.coerceAtLeast(1)) * height
             
-            val centroidInAspected = Offset(tapInContainerX, tapInContainerY) - Offset(width / 2f, height / 2f)
-            val maxX = (width * 1.2f) / 2f
-            val maxY = (height * 1.2f) / 2f
+            val minX = -width * 1.2f
+            val minY = -height * 1.2f
             
             docOffset = Offset(
-                x = (-centroidInAspected.x * 1.2f).coerceIn(-maxX, maxX),
-                y = (-centroidInAspected.y * 1.2f).coerceIn(-maxY, maxY)
+                x = (-tapInContainerX * 1.2f).coerceIn(minX, 0f),
+                y = (-tapInContainerY * 1.2f).coerceIn(minY, 0f)
             )
         }
     }
@@ -572,14 +572,14 @@ fun ReaderScreen(
                                             val effectiveZoom = newScale / oldScale
 
                                             if (newScale > 1f) {
-                                                val centroidInAspected = centroid - Offset(containerSize.width / 2f, containerSize.height / 2f)
-                                                val newOffset = (docOffset - centroidInAspected) * effectiveZoom + centroidInAspected + panChange
-
-                                                val maxX = (containerSize.width * (newScale - 1f)) / 2f
-                                                val maxY = (containerSize.height * (newScale - 1f)) / 2f
+                                                val newOffset = (docOffset - centroid) * effectiveZoom + centroid + panChange
+                                                
+                                                val minX = -containerSize.width * (newScale - 1f)
+                                                val minY = -containerSize.height * (newScale - 1f)
+                                                
                                                 docOffset = Offset(
-                                                    x = newOffset.x.coerceIn(-maxX, maxX),
-                                                    y = newOffset.y.coerceIn(-maxY, maxY)
+                                                    x = newOffset.x.coerceIn(minX, 0f),
+                                                    y = newOffset.y.coerceIn(minY, 0f)
                                                 )
                                             } else {
                                                 docOffset = Offset.Zero
@@ -599,14 +599,14 @@ fun ReaderScreen(
                                         }
 
                                         if (pastTouchSlop) {
-                                            val maxX = (containerSize.width * (docScale - 1f)) / 2f
-                                            val maxY = (containerSize.height * (docScale - 1f)) / 2f
+                                            val minX = -containerSize.width * (docScale - 1f)
+                                            val minY = -containerSize.height * (docScale - 1f)
 
                                             val proposedX = docOffset.x + panChange.x
                                             val proposedY = docOffset.y + panChange.y
 
-                                            val boundedX = proposedX.coerceIn(-maxX, maxX)
-                                            val boundedY = proposedY.coerceIn(-maxY, maxY)
+                                            val boundedX = proposedX.coerceIn(minX, 0f)
+                                            val boundedY = proposedY.coerceIn(minY, 0f)
 
                                             val extraY = proposedY - boundedY
 
@@ -630,7 +630,8 @@ fun ReaderScreen(
                             scaleX = currentScale,
                             scaleY = currentScale,
                             translationX = currentOffsetX,
-                            translationY = currentOffsetY
+                            translationY = currentOffsetY,
+                            transformOrigin = TransformOrigin(0f, 0f)
                         )
                 ) {
                         /* COMMENTED OUT DUPLICATED WORKSPACE CODE:
