@@ -532,7 +532,7 @@ fun ReaderScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .onSizeChanged { containerSize = it }
-                        .pointerInput(docScale) {
+                        .pointerInput(Unit) {
                             awaitEachGesture {
                                 try {
                                     val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
@@ -1276,14 +1276,17 @@ fun PdfPageRenderItem(
     onAddText: (Int, Offset) -> Unit,
     onStickyNoteClick: (PdfAnnotation) -> Unit
 ) {
-    var pageBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var pageBitmap by remember(pageIndex) { mutableStateOf<Bitmap?>(viewModel.getCachedBitmapForPage(pageIndex)) }
     var isLoading by remember { mutableStateOf(false) }
 
     // Load page bitmap dynamically on-demand with settledScale
     LaunchedEffect(pageIndex, pdfUri, settledScale) {
         isLoading = true
         val targetWidth = (1080 * settledScale).toInt().coerceIn(540, 3240)
-        pageBitmap = viewModel.getPageBitmap(pdfUri, pageIndex, targetWidth)
+        val bm = viewModel.getPageBitmap(pdfUri, pageIndex, targetWidth)
+        if (bm != null) {
+            pageBitmap = bm
+        }
         isLoading = false
     }
 
@@ -1300,7 +1303,7 @@ fun PdfPageRenderItem(
             .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(8.dp)),
         contentAlignment = Alignment.Center
     ) {
-        if (isLoading) {
+        if (pageBitmap == null) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()

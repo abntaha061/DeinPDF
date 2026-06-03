@@ -123,7 +123,7 @@ class ReaderViewModel(
     private val bitmapCache = mutableMapOf<String, Bitmap>()
     private var readStartTime = System.currentTimeMillis()
 
-    private fun getCachedBitmapForPage(pageIndex: Int): Bitmap? {
+    fun getCachedBitmapForPage(pageIndex: Int): Bitmap? {
         return synchronized(bitmapCache) {
             bitmapCache.entries.firstOrNull { it.key.startsWith("${pageIndex}_") }?.value
         }
