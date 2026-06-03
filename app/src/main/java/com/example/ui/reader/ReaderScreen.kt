@@ -825,7 +825,11 @@ fun ReaderScreen(
                                 onStickyNoteClick = { annot ->
                                     activeStickyNoteToShow = annot
                                 },
-                                readerBgTone = readerBgTone
+                                readerBgTone = readerBgTone,
+                                onNonLinkClick = {
+                                    showWpsMenu = true
+                                    viewModel.hideTranslation()
+                                }
                             )
                         }
                     }
@@ -1463,7 +1467,7 @@ fun ReaderScreen(
                                             subtitle = "تقليص وضغط ذكي للملف دون فقدان الجودة",
                                             iconTint = SuccessGreen,
                                             onClick = {
-                                                android.widget.Toast.makeText(context, "جاري ضغط الملف... تم خفض الحجم بمقدار ٣٤٪ بنجاح!", android.widget.Toast.LENGTH_LONG).show()
+                                                showWpsMenu = false; viewModel.compressPdf(pdfUri, context)
                                             }
                                         )
 
@@ -1474,7 +1478,7 @@ fun ReaderScreen(
                                             subtitle = "دمج صفحات وملفات PDF متعددة في ملف واحد",
                                             iconTint = AccentBlue,
                                             onClick = {
-                                                android.widget.Toast.makeText(context, "يرجى تحديد المستندات الإضافية لدمجها حالياً.", android.widget.Toast.LENGTH_SHORT).show()
+                                                showWpsMenu = false; viewModel.showMergePicker()
                                             }
                                         )
 
@@ -1497,7 +1501,7 @@ fun ReaderScreen(
                                             subtitle = "مراجعة حجم الملف، والمسار المحلي وصلاحيات التعديل",
                                             iconTint = Color.White,
                                             onClick = {
-                                                android.widget.Toast.makeText(context, "مسار الملف: ${pdfUri?.path ?: "داخلي"} \nالحجم: ٢٤٠ صفحة", android.widget.Toast.LENGTH_LONG).show()
+                                                showWpsMenu = false; viewModel.showFileInfo()
                                             }
                                         )
                                     }
@@ -1736,8 +1740,8 @@ fun ReaderScreen(
                                                     iconBackgroundColor = AccentBlue.copy(alpha = 0.2f),
                                                     iconTint = AccentBlue,
                                                     onClick = {
-                                                        currentConvertTarget = "صور عالية الجودة (PNG)"
-                                                        isConvertingProgress = true
+                                                        showWpsMenu = false
+                                                        viewModel.convertCurrentPageToImage(pdfUri, currentPage, context)
                                                     }
                                                 )
                                             }
@@ -1748,8 +1752,8 @@ fun ReaderScreen(
                                                     iconBackgroundColor = SuccessGreen.copy(alpha = 0.2f),
                                                     iconTint = SuccessGreen,
                                                     onClick = {
-                                                        currentConvertTarget = "جدول بيانات Excel (XLSX)"
-                                                        isConvertingProgress = true
+                                                        showWpsMenu = false
+                                                        viewModel.extractTextFromPdf(pdfUri, context)
                                                     }
                                                 )
                                             }
@@ -1760,8 +1764,8 @@ fun ReaderScreen(
                                                     iconBackgroundColor = AccentCyan.copy(alpha = 0.2f),
                                                     iconTint = AccentCyan,
                                                     onClick = {
-                                                        currentConvertTarget = "مستند Word منسق (DOCX)"
-                                                        isConvertingProgress = true
+                                                        showWpsMenu = false
+                                                        viewModel.extractTextFromPdf(pdfUri, context)
                                                     }
                                                 )
                                             }
@@ -1772,8 +1776,8 @@ fun ReaderScreen(
                                                     iconBackgroundColor = Gold.copy(alpha = 0.2f),
                                                     iconTint = Gold,
                                                     onClick = {
-                                                        currentConvertTarget = "نص قابل للنسخ عبر الـ OCR الذكي"
-                                                        isConvertingProgress = true
+                                                        showWpsMenu = false
+                                                        viewModel.runOcrOnPage(pdfUri, currentPage, context)
                                                     }
                                                 )
                                             }
@@ -1784,8 +1788,8 @@ fun ReaderScreen(
                                                     iconBackgroundColor = Color.White.copy(alpha = 0.15f),
                                                     iconTint = Color.White,
                                                     onClick = {
-                                                        currentConvertTarget = "ملف PDF مصور بالكامل"
-                                                        isConvertingProgress = true
+                                                        showWpsMenu = false
+                                                        viewModel.compressPdf(pdfUri, context)
                                                     }
                                                 )
                                             }
@@ -1796,8 +1800,8 @@ fun ReaderScreen(
                                                     iconBackgroundColor = AccentPurple.copy(alpha = 0.2f),
                                                     iconTint = AccentPurple,
                                                     onClick = {
-                                                        currentConvertTarget = "عرض تقديمي PowerPoint (PPTX)"
-                                                        isConvertingProgress = true
+                                                        showWpsMenu = false
+                                                        viewModel.extractTextFromPdf(pdfUri, context)
                                                     }
                                                 )
                                             }
@@ -1979,7 +1983,8 @@ fun PdfPageRenderItem(
     onAddStickyNote: (Int, Offset) -> Unit,
     onAddText: (Int, Offset) -> Unit,
     onStickyNoteClick: (PdfAnnotation) -> Unit,
-    readerBgTone: String = "#FFFFFF"
+    readerBgTone: String = "#FFFFFF",
+    onNonLinkClick: () -> Unit = {}
 ) {
     var pageBitmap by remember(pageIndex) { mutableStateOf<Bitmap?>(viewModel.getCachedBitmapForPage(pageIndex)) }
     var isLoading by remember { mutableStateOf(false) }
@@ -2035,7 +2040,7 @@ fun PdfPageRenderItem(
                                     when (currentTool) {
                                         ReaderTool.NONE, ReaderTool.TRANSLATE -> {
                                             val canvasSize = Size(containerSize.width.toFloat(), containerSize.height.toFloat())
-                                            viewModel.translateWordAtOffset(tapOffset, canvasSize, pageIndex, context)
+                                            viewModel.translateWordAtOffset(tapOffset, canvasSize, pageIndex, context, onNonLinkClick)
                                         }
                                         ReaderTool.HIGHLIGHT -> {
                                             viewModel.addAnnotation(
@@ -2143,7 +2148,7 @@ fun PdfPageRenderItem(
                                     when (currentTool) {
                                         ReaderTool.NONE, ReaderTool.TRANSLATE -> {
                                             val canvasSize = Size(containerSize.width.toFloat(), containerSize.height.toFloat())
-                                            viewModel.translateWordAtOffset(tapOffset, canvasSize, pageIndex, context)
+                                            viewModel.translateWordAtOffset(tapOffset, canvasSize, pageIndex, context, onNonLinkClick)
                                         }
                                         ReaderTool.HIGHLIGHT -> {
                                             viewModel.addAnnotation(

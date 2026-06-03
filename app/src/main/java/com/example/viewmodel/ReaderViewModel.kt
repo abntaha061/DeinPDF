@@ -24,6 +24,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import java.util.Locale
 
 class ReaderViewModel(
@@ -272,7 +274,13 @@ class ReaderViewModel(
 
 
     // ===== Intercept word under touch coordinates =====
-    fun translateWordAtOffset(offset: Offset, canvasSize: androidx.compose.ui.geometry.Size, pageIndex: Int, context: Context) {
+    fun translateWordAtOffset(
+        offset: Offset,
+        canvasSize: androidx.compose.ui.geometry.Size,
+        pageIndex: Int,
+        context: Context,
+        onNonLinkClick: () -> Unit = {}
+    ) {
         viewModelScope.launch {
             try {
                 // 1. Check if there are real interactive links to match (WPS Style)
@@ -290,97 +298,61 @@ class ReaderViewModel(
 
                     if (clickedLink != null) {
                         val url = clickedLink.url
-                        val isAudio = url.lowercase().endsWith(".mp3") ||
-                                      url.contains(".mp3?") ||
-                                      url.contains("/sound/") ||
-                                      url.contains("audio") ||
-                                      (url.contains("dwds") && url.contains("media"))
-
-                        if (isAudio) {
-                            // Immediate sound playback in the background (One-Tap dual effect)
-                            try {
-                                android.media.MediaPlayer().apply {
-                                    setDataSource(context, Uri.parse(url))
-                                    setOnPreparedListener { start() }
-                                    setOnCompletionListener { release() }
-                                    setOnErrorListener { mp, _, _ ->
-                                        mp.release()
-                                        true
-                                    }
-                                    prepareAsync()
-                                }
-                            } catch (ae: Exception) {
-                                ae.printStackTrace()
+                        
+                        // Extract the word from the URL
+                        val word = when {
+                            url.contains("arabdict.com") -> {
+                                url.substringAfterLast("/")
+                                    .replace("-", " ")
+                                    .trim()
                             }
-                        } else {
-                            // External browser instant action (One-Tap dual effect)
-                            try {
-                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                }
-                                context.startActivity(intent)
-                            } catch (be: Exception) {
-                                be.printStackTrace()
+                            url.contains("dwds.de/wb/") -> {
+                                url.substringAfterLast("/wb/")
+                                    .replace("-", " ")
+                                    .trim()
                             }
+                            url.contains("translate_tts") -> {
+                                Uri.parse(url).getQueryParameter("q") ?: ""
+                            }
+                            else -> url.substringAfterLast("/").trim()
                         }
-                        // Bypasses translation card and OCR completely for interactive links
+                        
+                        // Speak German word right away
+                        if (word.isNotBlank()) {
+                            speak(word, context)
+                        }
+                        
+                        // Construct / Open Arabdict
+                        val arabdictUrl = if (url.contains("arabdict.com")) {
+                            url
+                        } else {
+                            val encoded = Uri.encode(word)
+                            "https://www.arabdict.com/ar/deutsch-arabisch/$encoded"
+                        }
+                        
+                        try {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(arabdictUrl)).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            context.startActivity(intent)
+                        } catch (e: Exception) {
+                            val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.arabdict.com")).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            context.startActivity(browserIntent)
+                        }
                         return@launch
                     }
                 }
 
-                // 2. OCR Fallback for static elements (if no link is clicked)
-                val uri = pdfUri
-                if (uri != null) {
-                    val bitmap = getCachedBitmapForPage(pageIndex) ?: getPageBitmap(uri, pageIndex)
-                    if (bitmap != null && canvasSize.width > 0f && canvasSize.height > 0f) {
-                        val scaleX = bitmap.width.toFloat() / canvasSize.width
-                        val scaleY = bitmap.height.toFloat() / canvasSize.height
-                        val targetX = (offset.x * scaleX).toInt()
-                        val targetY = (offset.y * scaleY).toInt()
+                // If no link is clicked, invoke callback to show WPS menu!
+                onNonLinkClick()
+                return@launch
 
-                        val ocrResult = ocrManager.recognizeText(bitmap, com.example.utils.OcrLanguage.AUTO)
-                        // Find a bounding block enclosing the tapped coordinates (or close enough)
-                        val tappedBlock = ocrResult.blocks.find { block ->
-                            val rect = block.boundingBox
-                            rect != null && rect.contains(targetX, targetY)
-                        }
-
-                        var textToTranslate = tappedBlock?.text ?: ""
-                        if (textToTranslate.isBlank()) {
-                            // Find closest word/block
-                            val closestBlock = ocrResult.blocks.minByOrNull { block ->
-                                val rect = block.boundingBox ?: return@minByOrNull Float.MAX_VALUE
-                                val dx = rect.centerX().toFloat() - targetX
-                                val dy = rect.centerY().toFloat() - targetY
-                                dx * dx + dy * dy
-                            }
-                            textToTranslate = closestBlock?.text ?: ""
-                        }
-
-                        // If we have some clean extracted text, translate it!
-                        if (textToTranslate.isNotBlank()) {
-                            // Trim to useful length
-                            val cleanWord = textToTranslate.split(Regex("\\s+")).firstOrNull { it.isNotBlank() } ?: textToTranslate
-                            translateText(cleanWord)
-                            speak(cleanWord, context)
-                            return@launch
-                        }
-                    }
-                }
             } catch (e: Exception) {
                 e.printStackTrace()
             }
-
-            // Fallback mock vocabulary words if OCR finds nothing
-            val mockGermanWord = when((pageIndex + offset.x.toInt()) % 5) {
-                0 -> "Aufgabe"
-                1 -> "Lernen"
-                2 -> "Ausbildung"
-                3 -> "Erfolg"
-                else -> "Sprache"
-            }
-            translateText(mockGermanWord)
-            speak(mockGermanWord, context)
+            onNonLinkClick()
         }
     }
 
@@ -593,6 +565,108 @@ class ReaderViewModel(
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         context.startActivity(Intent.createChooser(intent, "مشاركة ملف الـ PDF"))
+    }
+
+    // Overloaded summarizePage with 1 parameter
+    fun summarizePage(pageIndex: Int) {
+        summarizePage(pageIndex, "")
+    }
+
+    // تحويل صفحة لصورة
+    fun convertCurrentPageToImage(uri: Uri?, pageIndex: Int, context: Context) {
+        val targetUri = uri ?: pdfUri ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            val bitmap = repository.renderPdfPage(targetUri, pageIndex, 2160) ?: return@launch
+            val filename = "pdf_page_${pageIndex + 1}_${System.currentTimeMillis()}.jpg"
+            val destDir = android.os.Environment.getExternalStoragePublicDirectory(
+                android.os.Environment.DIRECTORY_PICTURES
+            )
+            destDir.mkdirs()
+            val file = java.io.File(destDir, filename)
+            try {
+                java.io.FileOutputStream(file).use { out ->
+                    bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, out)
+                }
+                android.media.MediaScannerConnection.scanFile(
+                    context, arrayOf(file.absolutePath), null, null
+                )
+                withContext(Dispatchers.Main) {
+                    _summaryText.value = "✅ تم حفظ الصورة في: Pictures/$filename"
+                    _showSummary.value = true
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    _summaryText.value = "❌ فشل حفظ الصورة: ${e.message}"
+                    _showSummary.value = true
+                }
+            }
+        }
+    }
+
+    // استخراج النص
+    fun extractTextFromPdf(uri: Uri?, context: Context) {
+        val targetUri = uri ?: pdfUri ?: return
+        viewModelScope.launch {
+            _summaryText.value = "جاري استخراج النص بـ OCR..."
+            _showSummary.value = true
+            // ML Kit OCR
+            val bitmap = repository.renderPdfPage(targetUri, _currentPage.value, 1080)
+            if (bitmap != null) {
+                val image = com.google.mlkit.vision.common.InputImage.fromBitmap(bitmap, 0)
+                val recognizer = com.google.mlkit.vision.text.TextRecognition.getClient(
+                    com.google.mlkit.vision.text.latin.TextRecognizerOptions.DEFAULT_OPTIONS
+                )
+                recognizer.process(image)
+                    .addOnSuccessListener { visionText ->
+                        _summaryText.value = visionText.text.ifBlank { "لم يُعثر على نص في هذه الصفحة" }
+                        _showSummary.value = true
+                    }
+                    .addOnFailureListener {
+                        _summaryText.value = "فشل OCR: ${it.message}"
+                    }
+            } else {
+                _summaryText.value = "فشل استخراج الصورة من صفحة الـ PDF الحالية"
+            }
+        }
+    }
+
+    // ضغط الملف
+    fun compressPdf(uri: Uri?, context: Context) {
+        val targetUri = uri ?: pdfUri ?: return
+        viewModelScope.launch {
+            _summaryText.value = "جاري ضغط الملف..."
+            _showSummary.value = true
+            try {
+                val outDir = context.getExternalFilesDir(null) ?: context.cacheDir
+                val outFile = java.io.File(outDir, "compressed_${System.currentTimeMillis()}.pdf")
+                val pdfUtils = com.example.utils.PdfUtils(context)
+                val success = pdfUtils.compressPdf(targetUri, outFile, 70)
+                if (success) {
+                    _summaryText.value = "✅ تم الضغط بنجاح\nالحجم الجديد: ${outFile.length() / 1024}KB\nالمسار: ${outFile.absolutePath}"
+                } else {
+                    _summaryText.value = "❌ فشل ضغط الملف"
+                }
+            } catch (e: Exception) {
+                _summaryText.value = "❌ خطأ أثناء ضغط الملف: ${e.message}"
+            }
+        }
+    }
+
+    // تشغيل OCR
+    fun runOcrOnPage(uri: Uri?, pageIndex: Int, context: Context) {
+        extractTextFromPdf(uri, context)
+    }
+
+    // معلومات الملف
+    fun showFileInfo() {
+        _summaryText.value = "معلومات الملف:\n• الاسم: $pdfName\n• عدد الصفحات: ${_pageCount.value}"
+        _showSummary.value = true
+    }
+
+    fun showMergePicker() {
+        _summaryText.value = "ميزة الدمج: الرجاء استخدام شاشة أدوات PDF للدمج السريع."
+        _showSummary.value = true
     }
 
     override fun onCleared() {
