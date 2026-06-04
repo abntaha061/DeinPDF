@@ -552,15 +552,21 @@ class MainViewModel(
 
     // ═══ دالة المسح الحقيقية ═══
     fun scanForPdfs() {
-        if (_homeState.value.isScanning) return
+        android.util.Log.d("SCAN_DEBUG", "scanForPdfs() called")
+        if (_homeState.value.isScanning) {
+            android.util.Log.d("SCAN_DEBUG", "scanForPdfs() aborted - already scanning")
+            return
+        }
 
         viewModelScope.launch(Dispatchers.IO) {
             _homeState.update { it.copy(isScanning = true, scanMessage = "") }
+            android.util.Log.d("SCAN_DEBUG", "scanForPdfs: started coroutine")
 
             try {
                 val foundPdfs = mutableListOf<PdfFile>()
 
-                // ═══ MediaStore Query — يجيب كل PDF في الجهاز ═══
+                // 1. MediaStore Scan (Great for standard indexed files)
+                android.util.Log.d("SCAN_DEBUG", "Querying MediaStore...")
                 val projection = arrayOf(
                     MediaStore.Files.FileColumns._ID,
                     MediaStore.Files.FileColumns.DISPLAY_NAME,
@@ -572,65 +578,97 @@ class MainViewModel(
                 val selectionArgs = arrayOf("application/pdf")
                 val sortOrder = "${MediaStore.Files.FileColumns.DATE_MODIFIED} DESC"
 
-                context.contentResolver.query(
-                    MediaStore.Files.getContentUri("external"),
-                    projection,
-                    selection,
-                    selectionArgs,
-                    sortOrder
-                )?.use { cursor ->
-                    val idCol   = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
-                    val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME)
-                    val dataCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATA)
-                    val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.SIZE)
-                    val dateCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_MODIFIED)
+                try {
+                    context.contentResolver.query(
+                        MediaStore.Files.getContentUri("external"),
+                        projection,
+                        selection,
+                        selectionArgs,
+                        sortOrder
+                    )?.use { cursor ->
+                        val idCol   = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
+                        val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME)
+                        val dataCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATA)
+                        val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.SIZE)
+                        val dateCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_MODIFIED)
 
-                    while (cursor.moveToNext()) {
-                        val id       = cursor.getLong(idCol)
-                        val name     = cursor.getString(nameCol) ?: continue
-                        val path     = cursor.getString(dataCol) ?: continue
-                        val size     = cursor.getLong(sizeCol)
-                        val modified = cursor.getLong(dateCol) * 1000L
+                        android.util.Log.d("SCAN_DEBUG", "MediaStore returned ${cursor.count} initial entries")
 
-                        // بناء Content URI صحيح
-                        val contentUri = ContentUris.withAppendedId(
-                            MediaStore.Files.getContentUri("external"), id
-                        )
+                        while (cursor.moveToNext()) {
+                            val id       = cursor.getLong(idCol)
+                            val name     = cursor.getString(nameCol) ?: continue
+                            val path     = cursor.getString(dataCol) ?: continue
+                            val size     = cursor.getLong(sizeCol)
+                            val modified = cursor.getLong(dateCol) * 1000L
 
-                        // خذ persistent permission
-                        try {
-                            context.contentResolver.takePersistableUriPermission(
-                                contentUri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                            // بناء Content URI صحيح
+                            val contentUri = ContentUris.withAppendedId(
+                                MediaStore.Files.getContentUri("external"), id
                             )
-                        } catch (_: Exception) {}
 
-                        // تحقق لو الملف موجود مسبقاً في Room
-                        val existing = repository.getPdfFileByPath(contentUri.toString())
-                        if (existing == null) {
-                            // احسب عدد الصفحات
-                            val pageCount = getPageCount(contentUri)
-
-                            // اعمل Thumbnail
-                            val thumbPath = generateThumbnail(contentUri, name)
-
-                            foundPdfs.add(
-                                PdfFile(
-                                    name        = name.removeSuffix(".pdf").removeSuffix(".PDF"),
-                                    path        = contentUri.toString(),
-                                    uri         = contentUri.toString(),
-                                    size        = size,
-                                    pageCount   = pageCount,
-                                    thumbnailPath = thumbPath ?: "",
-                                    lastOpened  = modified,
-                                    dateAdded   = System.currentTimeMillis(),
-                                    category    = guessCategory(name)
+                            // خذ persistent permission
+                            try {
+                                context.contentResolver.takePersistableUriPermission(
+                                    contentUri, Intent.FLAG_GRANT_READ_URI_PERMISSION
                                 )
-                            )
+                            } catch (_: Exception) {}
+
+                            // تحقق لو الملف موجود مسبقاً في Room بـ path أو contentUri
+                            val existing = repository.getPdfFileByPath(contentUri.toString()) ?: repository.getPdfFileByPath(path)
+                            if (existing == null) {
+                                val pageCount = getPageCount(contentUri)
+                                val thumbPath = generateThumbnail(contentUri, name)
+
+                                android.util.Log.d("SCAN_DEBUG", "MediaStore found new PDF: $name, path: $path")
+                                foundPdfs.add(
+                                    PdfFile(
+                                        name        = name.removeSuffix(".pdf").removeSuffix(".PDF"),
+                                        path        = path,
+                                        uri         = contentUri.toString(),
+                                        size        = size,
+                                        pageCount   = pageCount,
+                                        thumbnailPath = thumbPath ?: "",
+                                        lastOpened  = modified,
+                                        dateAdded   = System.currentTimeMillis(),
+                                        category    = guessCategory(name)
+                                    )
+                                )
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("SCAN_DEBUG", "Error during MediaStore scan: ${e.message}", e)
+                }
+
+                // 2. Direct File System Scan (Runs if MANAGE_EXTERNAL_STORAGE is granted, to find unindexed PDFs immediately)
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                    val isManager = android.os.Environment.isExternalStorageManager()
+                    android.util.Log.d("SCAN_DEBUG", "All Files Access Manager Check: $isManager")
+                    if (isManager) {
+                        try {
+                            android.util.Log.d("SCAN_DEBUG", "Starting direct filesystem scan of common directories...")
+                            // scan Documents and Downloads first (highly likely to hold PDFs, and very fast to traverse)
+                            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                            val documentsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
+                            
+                            android.util.Log.d("SCAN_DEBUG", "Direct scan: Scanning Downloads dir: ${downloadsDir.absolutePath}")
+                            scanDirRecursively(downloadsDir, 1, foundPdfs)
+
+                            android.util.Log.d("SCAN_DEBUG", "Direct scan: Scanning Documents dir: ${documentsDir.absolutePath}")
+                            scanDirRecursively(documentsDir, 1, foundPdfs)
+                            
+                            // Let's also scan the root of storage but with a shallow limit (depth <= 3) so it doesn't hang
+                            val rootDir = Environment.getExternalStorageDirectory()
+                            android.util.Log.d("SCAN_DEBUG", "Direct scan: Scanning Root Storage: ${rootDir.absolutePath}")
+                            scanDirRecursively(rootDir, 1, foundPdfs)
+                        } catch (e: Exception) {
+                            android.util.Log.e("SCAN_DEBUG", "Error during direct filesystem scan: ${e.message}", e)
                         }
                     }
                 }
 
-                // احفظ الملفات الجديدة في Room
+                //احفظ الملفات المكتشفة في قاعدة البيانات
+                android.util.Log.d("SCAN_DEBUG", "Saving ${foundPdfs.size} scanned PDFs to DB")
                 foundPdfs.forEach { repository.insertPdfFile(it) }
 
                 _homeState.update {
@@ -641,11 +679,61 @@ class MainViewModel(
                 }
 
             } catch (e: Exception) {
+                android.util.Log.e("SCAN_DEBUG", "Scanning exception: ${e.message}", e)
                 _homeState.update {
                     it.copy(
                         isScanning = false,
                         scanMessage = "خطأ في المسح: ${e.message}"
                     )
+                }
+            }
+        }
+    }
+
+    private suspend fun scanDirRecursively(dir: File, depth: Int, foundPdfs: MutableList<PdfFile>) {
+        if (depth > 4) return // Depth limit to keep it fast and responsive
+        if (!dir.exists() || !dir.isDirectory) return
+        val files = dir.listFiles() ?: return
+        for (file in files) {
+            if (file.isDirectory) {
+                val nameLower = file.name.lowercase()
+                if (!file.name.startsWith(".") &&
+                    nameLower != "android" &&
+                    nameLower != "data" &&
+                    nameLower != "cache" &&
+                    nameLower != "obb" &&
+                    nameLower != "mipmaps"
+                ) {
+                    scanDirRecursively(file, depth + 1, foundPdfs)
+                }
+            } else if (file.isFile && file.name.lowercase().endsWith(".pdf")) {
+                val path = file.absolutePath
+                val fileUri = Uri.fromFile(file).toString()
+                
+                // تحقق إذا كان الملف موجود مسبقاً في Room بـ path أو uri
+                val existing = repository.getPdfFileByPath(fileUri) ?: repository.getPdfFileByPath(path)
+                if (existing == null) {
+                    val pageCount = getPageCount(Uri.fromFile(file))
+                    val thumbPath = generateThumbnail(Uri.fromFile(file), file.name)
+                    
+                    // تأكد من عدم الإضافة المزدوجة في نفس العملية
+                    val alreadyAddedInThisScan = foundPdfs.any { it.path == path || it.uri == fileUri }
+                    if (!alreadyAddedInThisScan) {
+                        android.util.Log.d("SCAN_DEBUG", "Direct Scan found new PDF: ${file.name}")
+                        foundPdfs.add(
+                            PdfFile(
+                                name        = file.name.removeSuffix(".pdf").removeSuffix(".PDF"),
+                                path        = path,
+                                uri         = fileUri,
+                                size        = file.length(),
+                                pageCount   = pageCount,
+                                thumbnailPath = thumbPath ?: "",
+                                lastOpened  = file.lastModified(),
+                                dateAdded   = System.currentTimeMillis(),
+                                category    = guessCategory(file.name)
+                            )
+                        )
+                    }
                 }
             }
         }

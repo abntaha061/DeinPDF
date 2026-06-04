@@ -56,9 +56,25 @@ fun HomeScreen(
         }
     }
 
+    val manageStorageLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { _ ->
+        android.util.Log.d("SCAN_DEBUG", "manageStorageLauncher callback triggered")
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            val isGranted = android.os.Environment.isExternalStorageManager()
+            android.util.Log.d("SCAN_DEBUG", "After settings callback - isExternalStorageManager = $isGranted")
+            if (isGranted) {
+                viewModel.scanForPdfs()
+            } else {
+                android.widget.Toast.makeText(context, "لم يتم منح إذن الوصول الكامل للملفات", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
+        android.util.Log.d("SCAN_DEBUG", "permissionLauncher callback triggered - isGranted = $isGranted")
         if (isGranted) {
             viewModel.scanForPdfs()
         } else {
@@ -67,15 +83,38 @@ fun HomeScreen(
     }
 
     val checkAndScan = {
-        val permission = android.Manifest.permission.READ_EXTERNAL_STORAGE
-        val isGranted = androidx.core.content.ContextCompat.checkSelfPermission(
-            context, permission
-        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-
-        if (isGranted) {
-            viewModel.scanForPdfs()
+        android.util.Log.d("SCAN_DEBUG", "checkAndScan triggered")
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            val isManager = android.os.Environment.isExternalStorageManager()
+            android.util.Log.d("SCAN_DEBUG", "Current isExternalStorageManager = $isManager")
+            if (isManager) {
+                viewModel.scanForPdfs()
+            } else {
+                try {
+                    android.util.Log.d("SCAN_DEBUG", "Requesting ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION")
+                    val intent = Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                        data = Uri.parse("package:${context.packageName}")
+                    }
+                    manageStorageLauncher.launch(intent)
+                } catch (e: Exception) {
+                    android.util.Log.d("SCAN_DEBUG", "ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION failed, fallback to ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION: ${e.message}")
+                    val intent = Intent(android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                    manageStorageLauncher.launch(intent)
+                }
+            }
         } else {
-            permissionLauncher.launch(permission)
+            val permission = android.Manifest.permission.READ_EXTERNAL_STORAGE
+            val isGranted = androidx.core.content.ContextCompat.checkSelfPermission(
+                context, permission
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            android.util.Log.d("SCAN_DEBUG", "Pre-R API check - READ_EXTERNAL_STORAGE isGranted = $isGranted")
+
+            if (isGranted) {
+                viewModel.scanForPdfs()
+            } else {
+                android.util.Log.d("SCAN_DEBUG", "Launching standard READ_EXTERNAL_STORAGE permission request")
+                permissionLauncher.launch(permission)
+            }
         }
     }
 
