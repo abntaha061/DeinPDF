@@ -335,15 +335,36 @@ class ReaderViewModel(
                         
                         val isPronunciation = url.contains("translate_tts") || 
                                               url.contains("translate.google") || 
-                                              url.contains("dwds.de") || 
                                               url.contains(".mp3") || 
                                               url.contains(".wav") || 
-                                              url.contains(".ogg")
+                                              url.contains(".ogg") ||
+                                              url.contains("/sound/") ||
+                                              url.contains("/audio/") ||
+                                              url.contains("media.dwds.de")
 
                         if (isPronunciation) {
-                            // Speak German word right away and don't open browser
-                            if (word.isNotBlank()) {
-                                speak(word, context)
+                            // Play the actual pronunciation link / audio URL directly via MediaPlayer
+                            try {
+                                android.media.MediaPlayer().apply {
+                                    setDataSource(context, Uri.parse(url))
+                                    setOnPreparedListener { start() }
+                                    setOnCompletionListener { release() }
+                                    setOnErrorListener { mp, _, _ ->
+                                        mp.release()
+                                        // Fallback to local TTS if playback fails
+                                        if (word.isNotBlank()) {
+                                            speak(word, context)
+                                        }
+                                        true
+                                    }
+                                    prepareAsync()
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                                // Fallback to local TTS if initialization fails
+                                if (word.isNotBlank()) {
+                                    speak(word, context)
+                                }
                             }
                         } else {
                             // Construct / Open Arabdict with clean URL and don't speak

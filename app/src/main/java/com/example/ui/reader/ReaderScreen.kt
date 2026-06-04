@@ -1,6 +1,7 @@
 package com.example.ui.reader
 
 import android.app.Activity
+import androidx.activity.compose.BackHandler
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
@@ -128,6 +129,31 @@ fun ReaderScreen(
     var isKeepScreenOn by remember { mutableStateOf(false) }
     var isRotationLocked by remember { mutableStateOf(false) }
     var isCropEnabled by remember { mutableStateOf(false) }
+
+    // Intercept system back button to close any open overlays first before exiting reader
+    val isBackHandlerEnabled = showWpsMenu || showTranslationCard || showSummary || showQaChat || (activeStickyNoteToShow != null) || isSearchVisible
+    BackHandler(enabled = isBackHandlerEnabled) {
+        when {
+            showWpsMenu -> {
+                showWpsMenu = false
+            }
+            showTranslationCard -> {
+                viewModel.hideTranslation()
+            }
+            showSummary -> {
+                viewModel.hideSummary()
+            }
+            showQaChat -> {
+                viewModel.toggleQaChat()
+            }
+            activeStickyNoteToShow != null -> {
+                activeStickyNoteToShow = null
+            }
+            isSearchVisible -> {
+                viewModel.hideSearch()
+            }
+        }
+    }
 
     // Keep screen on control logic
     val currentWindow = (context as? Activity)?.window
