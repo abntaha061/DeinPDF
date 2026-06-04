@@ -86,6 +86,16 @@ class PdfRepository(
     fun getFavorites(): Flow<List<PdfFile>> = pdfFileDao.getFavorites()
     fun searchFiles(query: String): Flow<List<PdfFile>> = pdfFileDao.search(query)
     fun getByCategory(cat: String): Flow<List<PdfFile>> = pdfFileDao.getByCategory(cat)
+    
+    fun getAllPdfFiles(): Flow<List<PdfFile>> = pdfFileDao.getAllFiles()
+
+    suspend fun getPdfFileByPath(path: String): PdfFile? = withContext(Dispatchers.IO) {
+        pdfFileDao.getByPath(path)
+    }
+
+    suspend fun insertPdfFile(file: PdfFile): Long = withContext(Dispatchers.IO) {
+        pdfFileDao.insert(file)
+    }
 
     suspend fun addFile(uri: Uri): PdfFile? = withContext(Dispatchers.IO) {
         try {

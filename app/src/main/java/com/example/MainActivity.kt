@@ -37,7 +37,7 @@ class MainActivity : FragmentActivity() {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 if (modelClass.isAssignableFrom(MainViewModel::class.java)) {
-                    return MainViewModel(app.pdfRepository, app.settingsDataStore) as T
+                    return MainViewModel(app.applicationContext, app.pdfRepository, app.settingsDataStore) as T
                 }
                 throw IllegalArgumentException("Unknown ViewModel class")
             }

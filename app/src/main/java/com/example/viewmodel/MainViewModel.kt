@@ -1,10 +1,14 @@
 package com.example.viewmodel
 
+import android.content.ContentUris
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.Environment
+import android.provider.MediaStore
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.model.*
@@ -19,6 +23,7 @@ import java.io.FileOutputStream
 
 @Suppress("OPT_IN_USAGE")
 class MainViewModel(
+    private val context: Context,
     private val repository: PdfRepository,
     private val settings: SettingsDataStore
 ) : ViewModel() {
@@ -35,6 +40,9 @@ class MainViewModel(
 
     val appLock: StateFlow<Boolean> = settings.appLock
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    private val _homeState = MutableStateFlow(HomeState())
+    val homeState: StateFlow<HomeState> = _homeState.asStateFlow()
 
     // ===== Files state =====
     val recentFiles: StateFlow<List<PdfFile>> = repository.getRecentFiles()
@@ -80,6 +88,7 @@ class MainViewModel(
 
     init {
         loadStats()
+        loadRecentFiles()
     }
 
     fun loadStats() {
@@ -524,4 +533,172 @@ class MainViewModel(
             }
         }
     }
+
+    private fun loadRecentFiles() {
+        viewModelScope.launch {
+            repository.getAllPdfFiles().collect { files ->
+                _homeState.update {
+                    it.copy(
+                        recentFiles = files
+                            .sortedByDescending { f -> f.lastOpened }
+                            .take(10),   // آخر 10 ملفات
+                        favoriteCount = files.count { f -> f.isFavorite },
+                        totalCount = files.size
+                    )
+                }
+            }
+        }
+    }
+
+    // ═══ دالة المسح الحقيقية ═══
+    fun scanForPdfs() {
+        if (_homeState.value.isScanning) return
+
+        viewModelScope.launch(Dispatchers.IO) {
+            _homeState.update { it.copy(isScanning = true, scanMessage = "") }
+
+            try {
+                val foundPdfs = mutableListOf<PdfFile>()
+
+                // ═══ MediaStore Query — يجيب كل PDF في الجهاز ═══
+                val projection = arrayOf(
+                    MediaStore.Files.FileColumns._ID,
+                    MediaStore.Files.FileColumns.DISPLAY_NAME,
+                    MediaStore.Files.FileColumns.DATA,
+                    MediaStore.Files.FileColumns.SIZE,
+                    MediaStore.Files.FileColumns.DATE_MODIFIED
+                )
+                val selection = "${MediaStore.Files.FileColumns.MIME_TYPE} = ?"
+                val selectionArgs = arrayOf("application/pdf")
+                val sortOrder = "${MediaStore.Files.FileColumns.DATE_MODIFIED} DESC"
+
+                context.contentResolver.query(
+                    MediaStore.Files.getContentUri("external"),
+                    projection,
+                    selection,
+                    selectionArgs,
+                    sortOrder
+                )?.use { cursor ->
+                    val idCol   = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
+                    val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME)
+                    val dataCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATA)
+                    val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.SIZE)
+                    val dateCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_MODIFIED)
+
+                    while (cursor.moveToNext()) {
+                        val id       = cursor.getLong(idCol)
+                        val name     = cursor.getString(nameCol) ?: continue
+                        val path     = cursor.getString(dataCol) ?: continue
+                        val size     = cursor.getLong(sizeCol)
+                        val modified = cursor.getLong(dateCol) * 1000L
+
+                        // بناء Content URI صحيح
+                        val contentUri = ContentUris.withAppendedId(
+                            MediaStore.Files.getContentUri("external"), id
+                        )
+
+                        // خذ persistent permission
+                        try {
+                            context.contentResolver.takePersistableUriPermission(
+                                contentUri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                            )
+                        } catch (_: Exception) {}
+
+                        // تحقق لو الملف موجود مسبقاً في Room
+                        val existing = repository.getPdfFileByPath(contentUri.toString())
+                        if (existing == null) {
+                            // احسب عدد الصفحات
+                            val pageCount = getPageCount(contentUri)
+
+                            // اعمل Thumbnail
+                            val thumbPath = generateThumbnail(contentUri, name)
+
+                            foundPdfs.add(
+                                PdfFile(
+                                    name        = name.removeSuffix(".pdf").removeSuffix(".PDF"),
+                                    path        = contentUri.toString(),
+                                    uri         = contentUri.toString(),
+                                    size        = size,
+                                    pageCount   = pageCount,
+                                    thumbnailPath = thumbPath ?: "",
+                                    lastOpened  = modified,
+                                    dateAdded   = System.currentTimeMillis(),
+                                    category    = guessCategory(name)
+                                )
+                            )
+                        }
+                    }
+                }
+
+                // احفظ الملفات الجديدة في Room
+                foundPdfs.forEach { repository.insertPdfFile(it) }
+
+                _homeState.update {
+                    it.copy(
+                        isScanning = false,
+                        scanMessage = "تم العثور على ${foundPdfs.size} ملف جديد"
+                    )
+                }
+
+            } catch (e: Exception) {
+                _homeState.update {
+                    it.copy(
+                        isScanning = false,
+                        scanMessage = "خطأ في المسح: ${e.message}"
+                    )
+                }
+            }
+        }
+    }
+
+    // ═══ دوال مساعدة ═══
+
+    private fun getPageCount(uri: Uri): Int {
+        return try {
+            val fd = context.contentResolver.openFileDescriptor(uri, "r") ?: return 0
+            val renderer = PdfRenderer(fd)
+            val count = renderer.pageCount
+            renderer.close(); fd.close()
+            count
+        } catch (_: Exception) { 0 }
+    }
+
+    private fun generateThumbnail(uri: Uri, name: String): String? {
+        return try {
+            val fd = context.contentResolver.openFileDescriptor(uri, "r") ?: return null
+            val renderer = PdfRenderer(fd)
+            if (renderer.pageCount == 0) { renderer.close(); fd.close(); return null }
+            val page = renderer.openPage(0)
+            val w = 200
+            val h = (page.height * (w.toFloat() / page.width)).toInt()
+            val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            bmp.eraseColor(android.graphics.Color.WHITE)
+            page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+            page.close(); renderer.close(); fd.close()
+
+            val dir = File(context.cacheDir, "thumbs").also { it.mkdirs() }
+            val file = File(dir, "${name.hashCode()}.jpg")
+            FileOutputStream(file).use { bmp.compress(Bitmap.CompressFormat.JPEG, 75, it) }
+            file.absolutePath
+        } catch (_: Exception) { null }
+    }
+
+    private fun guessCategory(name: String): String {
+        val l = name.lowercase()
+        return when {
+            l.contains("exam") || l.contains("test") || l.contains("امتحان") -> "tests"
+            l.contains("book") || l.contains("كتاب") || l.contains("buch") -> "books"
+            l.contains("lektion") || l.contains("netzwerk") || l.contains("deutsch") -> "books"
+            l.contains("report") || l.contains("تقرير") -> "reports"
+            else -> "documents"
+        }
+    }
 }
+
+data class HomeState(
+    val recentFiles: List<PdfFile> = emptyList(),
+    val isScanning: Boolean = false,
+    val favoriteCount: Int = 0,
+    val totalCount: Int = 0,
+    val scanMessage: String = ""
+)

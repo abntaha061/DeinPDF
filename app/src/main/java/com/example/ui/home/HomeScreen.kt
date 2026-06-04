@@ -45,9 +45,39 @@ fun HomeScreen(
     val favorites by viewModel.favorites.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val searchResults by viewModel.searchResults.collectAsState()
+    val homeState by viewModel.homeState.collectAsState()
 
     var selectedTab by remember { mutableStateOf(0) }
     var viewMode by remember { mutableStateOf(ViewMode.GRID) }
+
+    LaunchedEffect(homeState.scanMessage) {
+        if (homeState.scanMessage.isNotBlank()) {
+            android.widget.Toast.makeText(context, homeState.scanMessage, android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            viewModel.scanForPdfs()
+        } else {
+            android.widget.Toast.makeText(context, "يرجى منح إذن الوصول للملفات للبدء بالبحث", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val checkAndScan = {
+        val permission = android.Manifest.permission.READ_EXTERNAL_STORAGE
+        val isGranted = androidx.core.content.ContextCompat.checkSelfPermission(
+            context, permission
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+        if (isGranted) {
+            viewModel.scanForPdfs()
+        } else {
+            permissionLauncher.launch(permission)
+        }
+    }
 
     // System File picker (SAF)
     val filePicker = rememberLauncherForActivityResult(
@@ -235,27 +265,41 @@ fun HomeScreen(
                 }
 
                 // Recent books / documents
-                item { SectionTitle("🕐 الأخيرة") }
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        SectionTitle("الأخيرة 🕐")
+                        ScanButton(
+                            isScanning = homeState.isScanning,
+                            onScan = { checkAndScan() }
+                        )
+                    }
+                }
 
-                if (recentFiles.isEmpty()) {
-                    item { EmptyState(onPickFile = { filePicker.launch(arrayOf("application/pdf")) }) }
-                } else if (viewMode == ViewMode.GRID) {
+                if (homeState.recentFiles.isEmpty()) {
                     item {
-                        PdfGridView(
-                            files = recentFiles,
-                            onOpen = { f -> onOpenPdf(Uri.parse(f.uri), f.id) },
-                            onFavorite = viewModel::toggleFavorite,
-                            onDelete = viewModel::deleteFile
+                        EmptyRecentState(
+                            isScanning = homeState.isScanning,
+                            onScan = { checkAndScan() }
                         )
                     }
                 } else {
-                    items(recentFiles) { file ->
-                        PdfListItem(
-                            file = file,
-                            onOpen = { onOpenPdf(Uri.parse(file.uri), file.id) },
-                            onFavorite = { viewModel.toggleFavorite(file) },
-                            onDelete = { viewModel.deleteFile(file) }
-                        )
+                    item {
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            contentPadding = PaddingValues(horizontal = 4.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            items(homeState.recentFiles) { file ->
+                                FavoriteCard(
+                                    file = file,
+                                    onClick = { onOpenPdf(Uri.parse(file.uri), file.id) }
+                                )
+                            }
+                        }
                     }
                 }
             }
