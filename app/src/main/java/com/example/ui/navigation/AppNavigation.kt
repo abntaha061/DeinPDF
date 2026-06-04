@@ -109,7 +109,8 @@ fun AppNavigation(
 
         composable(Screen.Tools.route) {
             PdfToolsScreen(
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                viewModel = viewModel
             )
         }
 
