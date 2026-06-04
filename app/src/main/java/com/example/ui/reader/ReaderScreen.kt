@@ -132,11 +132,15 @@ fun ReaderScreen(
     var isKeepScreenOn by remember { mutableStateOf(false) }
     var isRotationLocked by remember { mutableStateOf(false) }
     var isCropEnabled by remember { mutableStateOf(false) }
+    var activeDwdsWordToWebview by remember { mutableStateOf<String?>(null) }
 
     // Intercept system back button to close any open overlays first before exiting reader
-    val isBackHandlerEnabled = showWpsMenu || showTranslationCard || showSummary || showQaChat || (activeStickyNoteToShow != null) || isSearchVisible
+    val isBackHandlerEnabled = showWpsMenu || showTranslationCard || showSummary || showQaChat || (activeStickyNoteToShow != null) || isSearchVisible || (activeDwdsWordToWebview != null)
     BackHandler(enabled = isBackHandlerEnabled) {
         when {
+            activeDwdsWordToWebview != null -> {
+                activeDwdsWordToWebview = null
+            }
             showWpsMenu -> {
                 if (wpsActiveTab != "main") {
                     wpsActiveTab = "main"
@@ -858,6 +862,7 @@ fun ReaderScreen(
                                 onStickyNoteClick = { annot ->
                                     activeStickyNoteToShow = annot
                                 },
+                                onDwdsClick = { activeDwdsWordToWebview = it },
                                 readerBgTone = readerBgTone,
                                 onNonLinkClick = {
                                     showWpsMenu = true
@@ -1155,10 +1160,21 @@ fun ReaderScreen(
                                     }
                                     
                                     OutlinedButton(
+                                        onClick = { activeDwdsWordToWebview = result.originalWord },
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentCyan),
+                                        border = BorderStroke(1.dp, AccentCyan),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.Default.Book, contentDescription = "DWDS", tint = AccentCyan)
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("بحث DWDS", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                    }
+
+                                    OutlinedButton(
                                         onClick = { viewModel.speak(result.originalWord, context) },
                                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
                                         border = BorderStroke(1.dp, AccentCyan),
-                                        modifier = Modifier.weight(0.4f)
+                                        modifier = Modifier.weight(0.6f)
                                     ) {
                                         Icon(Icons.Default.VolumeUp, contentDescription = "استماع", tint = AccentCyan)
                                         Spacer(modifier = Modifier.width(4.dp))
@@ -1166,6 +1182,54 @@ fun ReaderScreen(
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+            }
+
+            if (activeDwdsWordToWebview != null) {
+                androidx.compose.ui.window.Dialog(
+                    onDismissRequest = { activeDwdsWordToWebview = null }
+                ) {
+                    androidx.compose.material3.Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .fillMaxHeight(0.85f),
+                        colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = DarkSurface),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Gold)
+                    ) {
+                        Column {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "قاموس DWDS الألماني: ${activeDwdsWordToWebview}",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                                IconButton(onClick = { activeDwdsWordToWebview = null }) {
+                                    Icon(Icons.Default.Close, contentDescription = "إغلاق", tint = ErrorRed)
+                                }
+                            }
+                            androidx.compose.ui.viewinterop.AndroidView(
+                                factory = { context ->
+                                    android.webkit.WebView(context).apply {
+                                        settings.javaScriptEnabled = true
+                                        settings.domStorageEnabled = true
+                                        webViewClient = android.webkit.WebViewClient()
+                                        loadUrl("https://www.dwds.de/wb/${android.net.Uri.encode(activeDwdsWordToWebview)}")
+                                    }
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .weight(1f)
+                            )
                         }
                     }
                 }
@@ -1479,6 +1543,28 @@ fun ReaderScreen(
                                             iconTint = AccentCyan,
                                             hasPremiumBadge = true,
                                             onClick = { wpsActiveTab = "convert" }
+                                        )
+
+                                        WpsMenuRow(
+                                            icon = Icons.Default.Scanner,
+                                            title = "استخراج النص بالذكاء الاصطناعي (OCR)",
+                                            subtitle = "قراءة وتكشيف نصوص المستند بالكامل لتفعيل تحديد الكلمات وترجمتها",
+                                            iconTint = AccentCyan,
+                                            onClick = {
+                                                showWpsMenu = false
+                                                viewModel.startIndexing(context)
+                                            }
+                                        )
+
+                                        WpsMenuRow(
+                                            icon = Icons.Default.Description,
+                                            title = "تصدير الملف كـ نصوص TXT",
+                                            subtitle = "حفظ كافة نصوص وأبحاث المستند محلياً كملف نصي خطي",
+                                            iconTint = Gold,
+                                            onClick = {
+                                                showWpsMenu = false
+                                                viewModel.exportAllOcrText(context)
+                                            }
                                         )
 
                                         // AI summary
@@ -2001,91 +2087,8 @@ fun ReaderScreen(
             }
 
             // ===== 4. DYNAMIC HOVERING SELECTION TOOLBAR MENU =====
-            val selectedText by viewModel.selectedText.collectAsState()
-            val selectionStartPageIndexState by viewModel.selectionStartPageIndex.collectAsState()
-            val showSelectionMenu by viewModel.showSelectionMenu.collectAsState()
+            // Removed redundant bottom bar to let the localized above-selection floating toolbar take over.
             
-            if (selectionStartPageIndexState != null && selectedText.isNotBlank() && showSelectionMenu) {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = DarkSurface),
-                    border = BorderStroke(1.dp, AccentBlue),
-                    shape = RoundedCornerShape(24.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 90.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        IconButton(onClick = {
-                            viewModel.addAnnotation(
-                                PdfAnnotation(
-                                    pdfId = viewModel.pdfId,
-                                    page = selectionStartPageIndexState ?: 0,
-                                    type = AnnotationType.HIGHLIGHT,
-                                    content = selectedText,
-                                    x = 100f,
-                                    y = 100f,
-                                    width = 300f,
-                                    height = 40f,
-                                    colorHex = "#FBBF24"
-                                )
-                            )
-                            viewModel.clearSelection()
-                        }) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(Icons.Default.BorderColor, contentDescription = "تمييز", tint = Gold, modifier = Modifier.size(20.dp))
-                                Text("تمييز", fontSize = 9.sp, color = Color.White)
-                            }
-                        }
-
-                        IconButton(onClick = {
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                            val clip = android.content.ClipData.newPlainText("Copied Text", selectedText)
-                            clipboard.setPrimaryClip(clip)
-                            android.widget.Toast.makeText(context, "تم كبس النص بنجاح", android.widget.Toast.LENGTH_SHORT).show()
-                            viewModel.clearSelection()
-                        }) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(Icons.Default.ContentCopy, contentDescription = "نسخ", tint = Color.White, modifier = Modifier.size(20.dp))
-                                Text("نسخ", fontSize = 9.sp, color = Color.White)
-                            }
-                        }
-
-                        IconButton(onClick = {
-                            viewModel.translateText(selectedText)
-                            viewModel.clearSelection()
-                        }) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(Icons.Default.Translate, contentDescription = "ترجمة", tint = AccentBlue, modifier = Modifier.size(20.dp))
-                                Text("ترجمة", fontSize = 9.sp, color = Color.White)
-                            }
-                        }
-
-                        IconButton(onClick = {
-                            viewModel.speak(selectedText, context)
-                            viewModel.clearSelection()
-                        }) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(Icons.Default.VolumeUp, contentDescription = "نطق", tint = Color.Green, modifier = Modifier.size(20.dp))
-                                Text("نطق", fontSize = 9.sp, color = Color.White)
-                            }
-                        }
-
-                        IconButton(onClick = {
-                            viewModel.clearSelection()
-                        }) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(Icons.Default.Close, contentDescription = "تم", tint = ErrorRed, modifier = Modifier.size(20.dp))
-                                Text("إلغاء", fontSize = 9.sp, color = Color.White)
-                            }
-                        }
-                    }
-                }
-            }
 
             // ===== 5. INTERACTIVE MULTI-PAGE OCR INDEX PROGRESS CARD =====
             val isOcrScanning by viewModel.isOcrScanning.collectAsState()
@@ -2231,6 +2234,7 @@ fun PdfPageRenderItem(
     onAddStickyNote: (Int, Offset) -> Unit,
     onAddText: (Int, Offset) -> Unit,
     onStickyNoteClick: (PdfAnnotation) -> Unit,
+    onDwdsClick: (String) -> Unit = {},
     readerBgTone: String = "#FFFFFF",
     onNonLinkClick: () -> Unit = {}
 ) {
@@ -2256,6 +2260,8 @@ fun PdfPageRenderItem(
     val selectionStartPageIndex by viewModel.selectionStartPageIndex.collectAsState()
     val selectionStartWordIdx by viewModel.selectionStartWordIndex.collectAsState()
     val selectionEndWordIdx by viewModel.selectionEndWordIndex.collectAsState()
+    val selectedText by viewModel.selectedText.collectAsState()
+    val showSelectionMenu by viewModel.showSelectionMenu.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val searchResults by viewModel.searchResults.collectAsState()
 
@@ -2286,6 +2292,7 @@ fun PdfPageRenderItem(
             }
         } else {
             pageBitmap?.let { bitmap ->
+                var draggingHandle by remember { mutableStateOf<String?>(null) }
                 var containerSize by remember { mutableStateOf(IntSize.Zero) }
                 val aspect = bitmap.width.toFloat() / bitmap.height.toFloat()
                 Box(
@@ -2293,44 +2300,107 @@ fun PdfPageRenderItem(
                         .fillMaxWidth()
                         .aspectRatio(aspect)
                         .onSizeChanged { containerSize = it }
-                        .pointerInput(currentTool, annotationSubTool) {
+                        .pointerInput(currentTool, annotationSubTool, selectionStartPageIndex) {
                             detectTapGestures(
                                 onDoubleTap = { tapOffset ->
                                     onDoubleTapZoom(tapOffset, containerSize)
                                 },
                                 onTap = { tapOffset ->
-                                    when (currentTool) {
-                                        ReaderTool.NONE, ReaderTool.TRANSLATE -> {
-                                            val canvasSize = Size(containerSize.width.toFloat(), containerSize.height.toFloat())
-                                            viewModel.translateWordAtOffset(tapOffset, canvasSize, pageIndex, context, onNonLinkClick)
-                                        }
-                                        ReaderTool.HIGHLIGHT -> {
-                                            viewModel.addAnnotation(
-                                                PdfAnnotation(
-                                                    pdfId = viewModel.pdfId,
-                                                    page = pageIndex,
-                                                    type = AnnotationType.HIGHLIGHT,
-                                                    x = tapOffset.x - 70f,
-                                                    y = tapOffset.y - 14f,
-                                                    width = 140f,
-                                                    height = 28f,
-                                                    colorHex = "#fbbf24"
-                                                )
-                                            )
-                                        }
-                                        ReaderTool.NOTE -> {
-                                            if (annotationSubTool == "sticky") {
-                                                onAddStickyNote(pageIndex, tapOffset)
-                                            } else {
-                                                onAddText(pageIndex, tapOffset)
+                                    if (selectionStartPageIndex != null) {
+                                        viewModel.clearSelection()
+                                    } else {
+                                        when (currentTool) {
+                                            ReaderTool.NONE, ReaderTool.TRANSLATE -> {
+                                                val canvasSize = Size(containerSize.width.toFloat(), containerSize.height.toFloat())
+                                                viewModel.translateWordAtOffset(tapOffset, canvasSize, pageIndex, context, onNonLinkClick)
                                             }
-                                        }
-                                        else -> {
-                                            onShowToolbar()
+                                            ReaderTool.HIGHLIGHT -> {
+                                                viewModel.addAnnotation(
+                                                    PdfAnnotation(
+                                                        pdfId = viewModel.pdfId,
+                                                        page = pageIndex,
+                                                        type = AnnotationType.HIGHLIGHT,
+                                                        x = tapOffset.x - 70f,
+                                                        y = tapOffset.y - 14f,
+                                                        width = 140f,
+                                                        height = 28f,
+                                                        colorHex = "#fbbf24"
+                                                    )
+                                                )
+                                            }
+                                            ReaderTool.NOTE -> {
+                                                if (annotationSubTool == "sticky") {
+                                                    onAddStickyNote(pageIndex, tapOffset)
+                                                } else {
+                                                    onAddText(pageIndex, tapOffset)
+                                                }
+                                            }
+                                            else -> {
+                                                onShowToolbar()
+                                            }
                                         }
                                     }
                                 }
                             )
+                        }
+                        .pointerInput(wordBlocks, containerSize, selectionStartPageIndex, selectionStartWordIdx, selectionEndWordIdx) {
+                            val scaleX = containerSize.width.toFloat() / 1080f
+                            val aspectVal = bitmap.width.toFloat() / bitmap.height.toFloat()
+                            val originalHeightVal = 1080f / aspectVal
+                            val scaleY = containerSize.height.toFloat() / originalHeightVal
+                            
+                            val isSelectionOnThisPage = selectionStartPageIndex == pageIndex && selectionStartWordIdx != -1 && selectionEndWordIdx != -1
+                            
+                            if (isSelectionOnThisPage) {
+                                detectDragGestures(
+                                    onDragStart = { startOffset ->
+                                        val startBlock = wordBlocks.getOrNull(selectionStartWordIdx)
+                                        val endBlock = wordBlocks.getOrNull(selectionEndWordIdx)
+                                        
+                                        val startRect = startBlock?.boundingBox
+                                        val endRect = endBlock?.boundingBox
+                                        
+                                        val handleStartOffset = if (startRect != null) {
+                                            Offset(startRect.left * scaleX, startRect.bottom * scaleY)
+                                        } else Offset.Zero
+                                        
+                                        val handleEndOffset = if (endRect != null) {
+                                            Offset(endRect.right * scaleX, endRect.bottom * scaleY)
+                                        } else Offset.Zero
+                                        
+                                        val distStart = if (startRect != null) (startOffset - handleStartOffset).getDistance() else Float.MAX_VALUE
+                                        val distEnd = if (endRect != null) (startOffset - handleEndOffset).getDistance() else Float.MAX_VALUE
+                                        
+                                        if (distStart < 120f && distStart < distEnd) {
+                                            draggingHandle = "start"
+                                        } else if (distEnd < 120f) {
+                                            draggingHandle = "end"
+                                        } else {
+                                            draggingHandle = null
+                                        }
+                                    },
+                                    onDrag = { change, dragAmount ->
+                                        if (draggingHandle != null) {
+                                            change.consume()
+                                            val clicked = findWordUnderTouch(change.position, containerSize, wordBlocks)
+                                            if (clicked != -1) {
+                                                if (draggingHandle == "start") {
+                                                    viewModel.updateSelectionStart(clicked)
+                                                } else if (draggingHandle == "end") {
+                                                    viewModel.updateSelectionEnd(clicked)
+                                                }
+                                            }
+                                        }
+                                    },
+                                    onDragEnd = {
+                                        draggingHandle = null
+                                        viewModel.showSelectionMenuAt(Offset(containerSize.width / 2f, 40f))
+                                    },
+                                    onDragCancel = {
+                                        draggingHandle = null
+                                    }
+                                )
+                            }
                         }
                         .pointerInput(wordBlocks, currentTool) {
                             detectDragGesturesAfterLongPress(
@@ -2535,18 +2605,51 @@ fun PdfPageRenderItem(
                         if (selectionStartPageIndex == pageIndex && selectionStartWordIdx != -1 && selectionEndWordIdx != -1) {
                             val range = if (selectionStartWordIdx <= selectionEndWordIdx) selectionStartWordIdx..selectionEndWordIdx else selectionEndWordIdx..selectionStartWordIdx
                             val validRange = range.first.coerceIn(wordBlocks.indices)..range.last.coerceIn(wordBlocks.indices)
+                            val scaleX = size.width / 1080f
+                            val originalHeight = 1080f / aspect
+                            val scaleY = size.height / originalHeight
+
                             wordBlocks.slice(validRange).forEach { block ->
                                 val rect = block.boundingBox
                                 if (rect != null) {
-                                    val scaleX = size.width / 1080f
-                                    val originalHeight = 1080f / aspect
-                                    val scaleY = size.height / originalHeight
                                     drawRect(
                                         color = Color(0x660288D1),
                                         topLeft = Offset(rect.left * scaleX, rect.top * scaleY),
                                         size = Size((rect.right - rect.left) * scaleX, (rect.bottom - rect.top) * scaleY)
                                     )
                                 }
+                            }
+
+                            val startWord = wordBlocks.getOrNull(selectionStartWordIdx)
+                            val endWord = wordBlocks.getOrNull(selectionEndWordIdx)
+                            val startRect = startWord?.boundingBox
+                            val endRect = endWord?.boundingBox
+
+                            if (startRect != null) {
+                                drawCircle(
+                                    color = Color(0xFF0288D1),
+                                    radius = 16f,
+                                    center = Offset(startRect.left * scaleX, startRect.bottom * scaleY + 12f)
+                                )
+                                drawLine(
+                                    color = Color(0xFF0288D1),
+                                    start = Offset(startRect.left * scaleX, startRect.top * scaleY),
+                                    end = Offset(startRect.left * scaleX, startRect.bottom * scaleY + 12f),
+                                    strokeWidth = 3f
+                                )
+                            }
+                            if (endRect != null) {
+                                drawCircle(
+                                    color = Color(0xFF0288D1),
+                                    radius = 16f,
+                                    center = Offset(endRect.right * scaleX, endRect.bottom * scaleY + 12f)
+                                )
+                                drawLine(
+                                    color = Color(0xFF0288D1),
+                                    start = Offset(endRect.right * scaleX, endRect.top * scaleY),
+                                    end = Offset(endRect.right * scaleX, endRect.bottom * scaleY + 12f),
+                                    strokeWidth = 3f
+                                )
                             }
                         }
 
@@ -2662,6 +2765,74 @@ fun PdfPageRenderItem(
                                 )
                             }
                         }
+
+                    // Render Floating toolbar above selection
+                    if (selectionStartPageIndex == pageIndex && selectionStartWordIdx != -1 && selectionEndWordIdx != -1 && showSelectionMenu) {
+                        val range = if (selectionStartWordIdx <= selectionEndWordIdx) selectionStartWordIdx..selectionEndWordIdx else selectionEndWordIdx..selectionStartWordIdx
+                        val validRange = range.first.coerceIn(wordBlocks.indices)..range.last.coerceIn(wordBlocks.indices)
+                        val selectedBlocks = wordBlocks.slice(validRange)
+
+                        if (selectedBlocks.isNotEmpty()) {
+                            val scaleX = containerSize.width.toFloat() / 1080f
+                            val aspectVal = bitmap.width.toFloat() / bitmap.height.toFloat()
+                            val originalHeightVal = 1080f / aspectVal
+                            val scaleY = containerSize.height.toFloat() / originalHeightVal
+
+                            val minTop = selectedBlocks.minOf { (it.boundingBox?.top ?: 0) * scaleY }
+                            val minLeft = selectedBlocks.minOf { (it.boundingBox?.left ?: 0) * scaleX }
+                            val maxRight = selectedBlocks.maxOf { (it.boundingBox?.right ?: 0) * scaleX }
+                            val centerSelectionX = (minLeft + maxRight) / 2f
+
+                            val toolbarWidthPx = with(density) { 310.dp.toPx() }
+                            val toolbarX = (centerSelectionX - toolbarWidthPx / 2f).coerceIn(10f, containerSize.width.toFloat() - toolbarWidthPx - 10f)
+                            // 52dp above selection top edge
+                            val toolbarY = (minTop - with(density) { 52.dp.toPx() }).coerceAtLeast(10f)
+
+                            val xDp = with(density) { toolbarX.toDp() }
+                            val yDp = with(density) { toolbarY.toDp() }
+
+                            SelectionToolbar(
+                                modifier = Modifier
+                                    .offset(x = xDp, y = yDp)
+                                    .width(310.dp),
+                                onCopy = {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                    val clip = android.content.ClipData.newPlainText("Copied Text", selectedText)
+                                    clipboard.setPrimaryClip(clip)
+                                    android.widget.Toast.makeText(context, "تم كبس النص بنجاح", android.widget.Toast.LENGTH_SHORT).show()
+                                    viewModel.clearSelection()
+                                },
+                                onTranslate = {
+                                    viewModel.translateText(selectedText)
+                                    viewModel.clearSelection()
+                                },
+                                onHighlight = {
+                                    viewModel.addAnnotation(
+                                        PdfAnnotation(
+                                            pdfId = viewModel.pdfId,
+                                            page = pageIndex,
+                                            type = AnnotationType.HIGHLIGHT,
+                                            content = selectedText,
+                                            x = minLeft,
+                                            y = minTop,
+                                            width = maxRight - minLeft,
+                                            height = selectedBlocks.maxOf { (it.boundingBox?.bottom ?: 0) * scaleY } - minTop,
+                                            colorHex = "#fbbf24"
+                                        )
+                                    )
+                                    viewModel.clearSelection()
+                                },
+                                onDwds = {
+                                    onDwdsClick(selectedText)
+                                    viewModel.clearSelection()
+                                },
+                                onSaveVocabulary = {
+                                    viewModel.saveToVocabularyFromSelection(context, selectedText)
+                                    viewModel.clearSelection()
+                                }
+                            )
+                        }
+                    }
                 }
             } ?: Box(
                 modifier = Modifier
@@ -2850,4 +3021,61 @@ fun findWordUnderTouch(touch: Offset, containerSize: IntSize, blocks: List<OcrBl
         }
     }
     return if (minDistance < 35000) bestIndex else -1
+}
+
+@Composable
+fun SelectionToolbar(
+    modifier: Modifier = Modifier,
+    onCopy: () -> Unit,
+    onTranslate: () -> Unit,
+    onHighlight: () -> Unit,
+    onDwds: () -> Unit,
+    onSaveVocabulary: () -> Unit
+) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E2E)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+        shape = RoundedCornerShape(8.dp),
+        border = BorderStroke(1.dp, Gold)
+    ) {
+        Row(
+            modifier = Modifier
+                .padding(horizontal = 4.dp, vertical = 2.dp)
+                .fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ToolbarAction("نسخ", Icons.Default.ContentCopy, onCopy)
+            ToolbarAction("ترجمة", Icons.Default.Translate, onTranslate)
+            ToolbarAction("تمييز", Icons.Default.BorderColor, onHighlight)
+            ToolbarAction("DWDS", Icons.Default.Book, onDwds)
+            ToolbarAction("حفظ كمفردة", Icons.Default.Star, onSaveVocabulary)
+        }
+    }
+}
+
+@Composable
+fun ToolbarAction(label: String, icon: ImageVector, onClick: () -> Unit) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .clip(RoundedCornerShape(4.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 4.dp, horizontal = 4.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = Color.White,
+            modifier = Modifier.size(18.dp)
+        )
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = label,
+            color = Color.White,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold
+        )
+    }
 }
