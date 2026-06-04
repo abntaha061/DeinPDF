@@ -38,6 +38,20 @@ class PdfRepository(
     private val annotationDao = db.annotationDao()
     private val vocabularyDao = db.vocabularyDao()
     private val readHistoryDao = db.readHistoryDao()
+    private val ocrPageTextDao = db.ocrPageTextDao()
+
+    // ========== OCR Page Text ==========
+    suspend fun getPageOcrText(pdfId: Long, page: Int): OcrPageText? = withContext(Dispatchers.IO) {
+        ocrPageTextDao.getPageText(pdfId, page)
+    }
+
+    suspend fun getAllOcrPageTexts(pdfId: Long): List<OcrPageText> = withContext(Dispatchers.IO) {
+        ocrPageTextDao.getAllForPdf(pdfId)
+    }
+
+    suspend fun savePageOcrText(pdfId: Long, page: Int, text: String, coordsJson: String) = withContext(Dispatchers.IO) {
+        ocrPageTextDao.insert(OcrPageText(pdfId = pdfId, page = page, text = text, wordCoordinatesJson = coordsJson))
+    }
 
     // Reusable active PdfRenderer session to achieve fast 60FPS WPS Office style rendering
     @Volatile
@@ -481,6 +495,39 @@ class PdfRepository(
         } catch (e: Exception) {
             e.printStackTrace()
             emptyList()
+        } finally {
+            try { document?.close() } catch (_: Exception) {}
+            try { inputStream?.close() } catch (_: Exception) {}
+        }
+    }
+
+    suspend fun extractPageTextWithPdfBox(uri: java.net.URI, pageIndex: Int): String {
+        return extractPageTextWithPdfBox(Uri.parse(uri.toString()), pageIndex)
+    }
+
+    suspend fun extractPageTextWithPdfBox(uri: Uri, pageIndex: Int): String = withContext(Dispatchers.IO) {
+        var document: PDDocument? = null
+        var inputStream: java.io.InputStream? = null
+        try {
+            try {
+                val clazz = Class.forName("com.tom_roush.pdfbox.util.PDFBox")
+                clazz.getMethod("init", android.content.Context::class.java).invoke(null, context)
+            } catch (_: Exception) {
+                try {
+                    val clazz = Class.forName("com.tom_roush.pdfbox.android.PDFBox")
+                    clazz.getMethod("init", android.content.Context::class.java).invoke(null, context)
+                } catch (_: Exception) {}
+            }
+            inputStream = context.contentResolver.openInputStream(uri) ?: return@withContext ""
+            document = PDDocument.load(inputStream)
+            if (pageIndex < 0 || pageIndex >= document.numberOfPages) return@withContext ""
+            val stripper = com.tom_roush.pdfbox.text.PDFTextStripper()
+            stripper.startPage = pageIndex + 1
+            stripper.endPage = pageIndex + 1
+            stripper.getText(document) ?: ""
+        } catch (e: Exception) {
+            e.printStackTrace()
+            ""
         } finally {
             try { document?.close() } catch (_: Exception) {}
             try { inputStream?.close() } catch (_: Exception) {}

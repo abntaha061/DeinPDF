@@ -140,9 +140,24 @@ class Converters {
     fun toAnnotationType(value: String): AnnotationType = AnnotationType.valueOf(value)
 }
 
+@Dao
+interface OcrPageTextDao {
+    @Query("SELECT * FROM ocr_page_texts WHERE pdfId = :pdfId AND page = :page LIMIT 1")
+    suspend fun getPageText(pdfId: Long, page: Int): OcrPageText?
+
+    @Query("SELECT * FROM ocr_page_texts WHERE pdfId = :pdfId")
+    suspend fun getAllForPdf(pdfId: Long): List<OcrPageText>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(pageText: OcrPageText)
+
+    @Query("DELETE FROM ocr_page_texts WHERE pdfId = :pdfId")
+    suspend fun deleteForPdf(pdfId: Long)
+}
+
 @Database(
-    entities = [PdfFile::class, Bookmark::class, Annotation::class, VocabularyWord::class, ReadHistory::class],
-    version = 2,
+    entities = [PdfFile::class, Bookmark::class, Annotation::class, VocabularyWord::class, ReadHistory::class, OcrPageText::class],
+    version = 3,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -152,6 +167,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun annotationDao(): AnnotationDao
     abstract fun vocabularyDao(): VocabularyDao
     abstract fun readHistoryDao(): ReadHistoryDao
+    abstract fun ocrPageTextDao(): OcrPageTextDao
 
     companion object {
         @Volatile

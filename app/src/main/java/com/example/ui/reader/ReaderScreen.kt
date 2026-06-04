@@ -43,6 +43,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import android.content.Context
+import com.example.data.model.OcrPageText
+import com.example.utils.OcrBlock
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -135,7 +138,11 @@ fun ReaderScreen(
     BackHandler(enabled = isBackHandlerEnabled) {
         when {
             showWpsMenu -> {
-                showWpsMenu = false
+                if (wpsActiveTab != "main") {
+                    wpsActiveTab = "main"
+                } else {
+                    showWpsMenu = false
+                }
             }
             showTranslationCard -> {
                 viewModel.hideTranslation()
@@ -887,7 +894,7 @@ fun ReaderScreen(
                     ) {
                         OutlinedTextField(
                             value = searchQuery,
-                            onValueChange = { viewModel.search(it) },
+                            onValueChange = { viewModel.search(it, context) },
                             placeholder = { Text("ابحث داخل الملف...", color = TextMuted) },
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedTextColor = Color.White,
@@ -1992,6 +1999,221 @@ fun ReaderScreen(
                     }
                 )
             }
+
+            // ===== 4. DYNAMIC HOVERING SELECTION TOOLBAR MENU =====
+            val selectedText by viewModel.selectedText.collectAsState()
+            val selectionStartPageIndexState by viewModel.selectionStartPageIndex.collectAsState()
+            val showSelectionMenu by viewModel.showSelectionMenu.collectAsState()
+            
+            if (selectionStartPageIndexState != null && selectedText.isNotBlank() && showSelectionMenu) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = DarkSurface),
+                    border = BorderStroke(1.dp, AccentBlue),
+                    shape = RoundedCornerShape(24.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 90.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        IconButton(onClick = {
+                            viewModel.addAnnotation(
+                                PdfAnnotation(
+                                    pdfId = viewModel.pdfId,
+                                    page = selectionStartPageIndexState ?: 0,
+                                    type = AnnotationType.HIGHLIGHT,
+                                    content = selectedText,
+                                    x = 100f,
+                                    y = 100f,
+                                    width = 300f,
+                                    height = 40f,
+                                    colorHex = "#FBBF24"
+                                )
+                            )
+                            viewModel.clearSelection()
+                        }) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(Icons.Default.BorderColor, contentDescription = "تمييز", tint = Gold, modifier = Modifier.size(20.dp))
+                                Text("تمييز", fontSize = 9.sp, color = Color.White)
+                            }
+                        }
+
+                        IconButton(onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                            val clip = android.content.ClipData.newPlainText("Copied Text", selectedText)
+                            clipboard.setPrimaryClip(clip)
+                            android.widget.Toast.makeText(context, "تم كبس النص بنجاح", android.widget.Toast.LENGTH_SHORT).show()
+                            viewModel.clearSelection()
+                        }) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = "نسخ", tint = Color.White, modifier = Modifier.size(20.dp))
+                                Text("نسخ", fontSize = 9.sp, color = Color.White)
+                            }
+                        }
+
+                        IconButton(onClick = {
+                            viewModel.translateText(selectedText)
+                            viewModel.clearSelection()
+                        }) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(Icons.Default.Translate, contentDescription = "ترجمة", tint = AccentBlue, modifier = Modifier.size(20.dp))
+                                Text("ترجمة", fontSize = 9.sp, color = Color.White)
+                            }
+                        }
+
+                        IconButton(onClick = {
+                            viewModel.speak(selectedText, context)
+                            viewModel.clearSelection()
+                        }) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(Icons.Default.VolumeUp, contentDescription = "نطق", tint = Color.Green, modifier = Modifier.size(20.dp))
+                                Text("نطق", fontSize = 9.sp, color = Color.White)
+                            }
+                        }
+
+                        IconButton(onClick = {
+                            viewModel.clearSelection()
+                        }) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(Icons.Default.Close, contentDescription = "تم", tint = ErrorRed, modifier = Modifier.size(20.dp))
+                                Text("إلغاء", fontSize = 9.sp, color = Color.White)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ===== 5. INTERACTIVE MULTI-PAGE OCR INDEX PROGRESS CARD =====
+            val isOcrScanning by viewModel.isOcrScanning.collectAsState()
+            val ocrProgressPage by viewModel.ocrProgressPage.collectAsState()
+            val totalPages = pageCount
+
+            if (isOcrScanning) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = DarkSurface.copy(alpha = 0.95f)),
+                    border = BorderStroke(1.dp, AccentBlue),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 80.dp)
+                        .padding(horizontal = 24.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(
+                            progress = { if (totalPages > 0) ocrProgressPage.toFloat() / totalPages else 0f },
+                            color = AccentBlue,
+                            modifier = Modifier.size(28.dp),
+                            strokeWidth = 3.dp
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text("جاري معالجة وتكشيف نصوص المستند الكترونياً...", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text("الصفحة $ocrProgressPage من $totalPages ... يرجى الانتظار", color = TextMuted, fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+
+            // ===== 6. ADVANCED TTS SPEAK BANNER CONTROL PORTAL =====
+            val isTtsPlaying by viewModel.isTtsPlaying.collectAsState()
+            val ttsSentences by viewModel.ttsSentences.collectAsState()
+            val ttsCurrentSentenceIdx by viewModel.ttsCurrentSentenceIndex.collectAsState()
+            val ttsSpeed by viewModel.ttsSpeed.collectAsState()
+
+            if (ttsSentences.isNotEmpty() && ttsCurrentSentenceIdx != -1) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = DarkSurface),
+                    border = BorderStroke(1.dp, Color.Green),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 100.dp)
+                        .padding(horizontal = 16.dp)
+                        .fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("🔊 قارئ النصوص الذكي", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            
+                            Row(
+                                modifier = Modifier.background(DarkBorder, RoundedCornerShape(12.dp)).padding(horizontal = 6.dp, vertical = 2.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                listOf(0.75f, 1.0f, 1.35f, 1.75f).forEach { speed ->
+                                    Box(
+                                        modifier = Modifier
+                                            .background(
+                                                if (ttsSpeed == speed) AccentBlue else Color.Transparent,
+                                                RoundedCornerShape(8.dp)
+                                            )
+                                            .clickable { viewModel.setTtsSpeed(speed) }
+                                            .padding(horizontal = 6.dp, vertical = 4.dp)
+                                    ) {
+                                        Text("${speed}x", color = if (ttsSpeed == speed) Color.White else TextMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        Text(
+                            text = ttsSentences.getOrNull(ttsCurrentSentenceIdx) ?: "",
+                            color = Gold,
+                            fontSize = 12.sp,
+                            maxLines = 2,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)
+                        )
+                        
+                        Spacer(modifier = Modifier.height(10.dp))
+                        
+                        Row(
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            IconButton(onClick = { viewModel.stopTts() }) {
+                                Icon(Icons.Default.Stop, contentDescription = "إيقاف", tint = ErrorRed)
+                            }
+                            
+                            IconButton(
+                                onClick = {
+                                    viewModel.toggleTts(context, currentPage)
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = if (isTtsPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                    contentDescription = "تشغيل/إيقاف مؤقت",
+                                    tint = AccentBlue,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+                            
+                            Text(
+                                "جملة ${ttsCurrentSentenceIdx + 1} / ${ttsSentences.size}",
+                                color = TextMuted,
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(horizontal = 8.dp)
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -2030,6 +2252,20 @@ fun PdfPageRenderItem(
     val context = LocalContext.current
     val annotations by viewModel.annotations.collectAsState()
     val currentInkPoints = remember { mutableStateListOf<Offset>() }
+
+    val selectionStartPageIndex by viewModel.selectionStartPageIndex.collectAsState()
+    val selectionStartWordIdx by viewModel.selectionStartWordIndex.collectAsState()
+    val selectionEndWordIdx by viewModel.selectionEndWordIndex.collectAsState()
+    val searchQuery by viewModel.searchQuery.collectAsState()
+    val searchResults by viewModel.searchResults.collectAsState()
+
+    val pageTextState = remember(pageIndex, pdfUri) { mutableStateOf<OcrPageText?>(null) }
+    LaunchedEffect(pageIndex, pdfUri) {
+        pageTextState.value = viewModel.getPageOcrText(pageIndex)
+    }
+    val wordBlocks = remember(pageTextState.value) {
+        viewModel.deserializeBlocks(pageTextState.value?.wordCoordinatesJson ?: "")
+    }
 
     Box(
         modifier = Modifier
@@ -2093,6 +2329,30 @@ fun PdfPageRenderItem(
                                             onShowToolbar()
                                         }
                                     }
+                                }
+                            )
+                        }
+                        .pointerInput(wordBlocks, currentTool) {
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = { startOffset ->
+                                    val clickedIndex = findWordUnderTouch(startOffset, containerSize, wordBlocks)
+                                    if (clickedIndex != -1) {
+                                        viewModel.startSelection(pageIndex, clickedIndex, startOffset)
+                                    }
+                                },
+                                onDrag = { change, dragAmount ->
+                                    change.consume()
+                                    val touchOffset = change.position
+                                    val clickedIndex = findWordUnderTouch(touchOffset, containerSize, wordBlocks)
+                                    if (clickedIndex != -1) {
+                                        viewModel.updateSelectionEnd(clickedIndex)
+                                    }
+                                },
+                                onDragEnd = {
+                                    viewModel.showSelectionMenuAt(Offset(containerSize.width / 2f, 40f))
+                                },
+                                onDragCancel = {
+                                    viewModel.clearSelection()
                                 }
                             )
                         }
@@ -2270,6 +2530,39 @@ fun PdfPageRenderItem(
                                     size = Size(annot.width, annot.height)
                                 )
                             }
+
+                        // 1B. Draw Real Time Text Selection
+                        if (selectionStartPageIndex == pageIndex && selectionStartWordIdx != -1 && selectionEndWordIdx != -1) {
+                            val range = if (selectionStartWordIdx <= selectionEndWordIdx) selectionStartWordIdx..selectionEndWordIdx else selectionEndWordIdx..selectionStartWordIdx
+                            val validRange = range.first.coerceIn(wordBlocks.indices)..range.last.coerceIn(wordBlocks.indices)
+                            wordBlocks.slice(validRange).forEach { block ->
+                                val rect = block.boundingBox
+                                if (rect != null) {
+                                    val scaleX = size.width / 1080f
+                                    val originalHeight = 1080f / aspect
+                                    val scaleY = size.height / originalHeight
+                                    drawRect(
+                                        color = Color(0x660288D1),
+                                        topLeft = Offset(rect.left * scaleX, rect.top * scaleY),
+                                        size = Size((rect.right - rect.left) * scaleX, (rect.bottom - rect.top) * scaleY)
+                                    )
+                                }
+                            }
+                        }
+
+                        // 1C. Draw Real Time Search Matches
+                        if (searchQuery.isNotBlank()) {
+                            searchResults.filter { it.pageIndex == pageIndex }.forEach { match ->
+                                val scaleX = size.width / 1080f
+                                val originalHeight = 1080f / aspect
+                                val scaleY = size.height / originalHeight
+                                drawRect(
+                                    color = Color(0x7FFF9800),
+                                    topLeft = Offset(match.left * scaleX, match.top * scaleY),
+                                    size = Size((match.right - match.left) * scaleX, (match.bottom - match.top) * scaleY)
+                                )
+                            }
+                        }
 
                         // 2. Draw Ink paths
                         annotations.filter { it.page == pageIndex && it.type == AnnotationType.INK }
@@ -2528,4 +2821,33 @@ fun WpsGridCard(
             )
         }
     }
+}
+
+fun findWordUnderTouch(touch: Offset, containerSize: IntSize, blocks: List<OcrBlock>): Int {
+    if (containerSize.width <= 0 || containerSize.height <= 0 || blocks.isEmpty()) return -1
+    val scaleX = 1080f / containerSize.width
+    val aspect = containerSize.width.toFloat() / containerSize.height.toFloat()
+    val originalHeight = 1080f / aspect
+    val scaleY = originalHeight / containerSize.height
+    
+    val touchX = touch.x * scaleX
+    val touchY = touch.y * scaleY
+    
+    var bestIndex = -1
+    var minDistance = Float.MAX_VALUE
+    
+    for (i in blocks.indices) {
+        val rect = blocks[i].boundingBox ?: continue
+        if (touchX >= rect.left && touchX <= rect.right && touchY >= rect.top && touchY <= rect.bottom) {
+            return i
+        }
+        val cx = (rect.left + rect.right) / 2f
+        val cy = (rect.top + rect.bottom) / 2f
+        val dist = (cx - touchX) * (cx - touchX) + (cy - touchY) * (cy - touchY)
+        if (dist < minDistance) {
+            minDistance = dist
+            bestIndex = i
+        }
+    }
+    return if (minDistance < 35000) bestIndex else -1
 }

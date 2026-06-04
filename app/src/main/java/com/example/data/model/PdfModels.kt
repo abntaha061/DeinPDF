@@ -88,6 +88,16 @@ data class ReadHistory(
     val pagesRead: Int = 0
 )
 
+@Entity(tableName = "ocr_page_texts")
+data class OcrPageText(
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
+    val pdfId: Long,
+    val page: Int,
+    val text: String,
+    val wordCoordinatesJson: String = "" // serialised list of words with coordinates
+)
+
 data class PdfFolder(
     val name: String,
     val files: List<PdfFile>,

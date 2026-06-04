@@ -27,6 +27,19 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import java.util.Locale
+import com.example.utils.OcrBlock
+import com.example.utils.OcrResult
+
+data class SearchMatch(
+    val pageIndex: Int,
+    val text: String,
+    val wordIndexStart: Int,
+    val wordIndexEnd: Int,
+    val left: Float,
+    val top: Float,
+    val right: Float,
+    val bottom: Float
+)
 
 class ReaderViewModel(
     private val repository: PdfRepository,
@@ -57,6 +70,24 @@ class ReaderViewModel(
     private val _highlightColor = MutableStateFlow(Color(0xFFFBBF24))
     val highlightColor: StateFlow<Color> = _highlightColor.asStateFlow()
 
+    private val _drawColorHex = MutableStateFlow("#EF4444")
+    val drawColorHex: StateFlow<String> = _drawColorHex.asStateFlow()
+
+    private val _drawStrokeWidth = MutableStateFlow(6f)
+    val drawStrokeWidth: StateFlow<Float> = _drawStrokeWidth.asStateFlow()
+
+    fun setHighlightColor(color: Color) {
+        _highlightColor.value = color
+    }
+
+    fun setDrawColorHex(hex: String) {
+        _drawColorHex.value = hex
+    }
+
+    fun setDrawStrokeWidth(width: Float) {
+        _drawStrokeWidth.value = width
+    }
+
     var pdfName = ""
     var pdfId = 0L
     private var pdfUri: Uri? = null
@@ -73,6 +104,42 @@ class ReaderViewModel(
 
     private val _searchResultCount = MutableStateFlow(0)
     val searchResultCount: StateFlow<Int> = _searchResultCount.asStateFlow()
+
+    // ===== Real Search Matches & Scanning =====
+    private val _searchResults = MutableStateFlow<List<SearchMatch>>(emptyList())
+    val searchResults: StateFlow<List<SearchMatch>> = _searchResults.asStateFlow()
+
+    private val _ocrProgressPage = MutableStateFlow(0)
+    val ocrProgressPage: StateFlow<Int> = _ocrProgressPage.asStateFlow()
+
+    private val _isOcrScanning = MutableStateFlow(false)
+    val isOcrScanning: StateFlow<Boolean> = _isOcrScanning.asStateFlow()
+
+    // ===== Text Selection =====
+    private val _selectionStartPageIndex = MutableStateFlow<Int?>(null)
+    val selectionStartPageIndex: StateFlow<Int?> = _selectionStartPageIndex.asStateFlow()
+
+    private val _selectionStartWordIndex = MutableStateFlow(-1)
+    val selectionStartWordIndex: StateFlow<Int> = _selectionStartWordIndex.asStateFlow()
+
+    private val _selectionEndWordIndex = MutableStateFlow(-1)
+    val selectionEndWordIndex: StateFlow<Int> = _selectionEndWordIndex.asStateFlow()
+
+    private val _showSelectionMenu = MutableStateFlow(false)
+    val showSelectionMenu: StateFlow<Boolean> = _showSelectionMenu.asStateFlow()
+
+    private val _selectionMenuPosition = MutableStateFlow(Offset.Zero)
+    val selectionMenuPosition: StateFlow<Offset> = _selectionMenuPosition.asStateFlow()
+
+    // ===== Enhanced TTS speed, sentences, current indices =====
+    private val _ttsSpeed = MutableStateFlow(1.0f)
+    val ttsSpeed: StateFlow<Float> = _ttsSpeed.asStateFlow()
+
+    private val _ttsSentences = MutableStateFlow<List<String>>(emptyList())
+    val ttsSentences: StateFlow<List<String>> = _ttsSentences.asStateFlow()
+
+    private val _ttsCurrentSentenceIndex = MutableStateFlow(-1)
+    val ttsCurrentSentenceIndex: StateFlow<Int> = _ttsCurrentSentenceIndex.asStateFlow()
 
     // ===== Translatation Popups =====
     private val _translationResult = MutableStateFlow<TranslationResult?>(null)
@@ -177,6 +244,10 @@ class ReaderViewModel(
         viewModelScope.launch {
             repository.addAnnotation(annotation)
         }
+    }
+
+    suspend fun getPageOcrText(pageIndex: Int): OcrPageText? {
+        return repository.getPageOcrText(pdfId, pageIndex)
     }
 
     fun deleteAnnotation(annotation: PdfAnnotation) {
@@ -367,21 +438,23 @@ class ReaderViewModel(
                                 }
                             }
                         } else {
-                            // Construct / Open Arabdict with clean URL and don't speak
-                            val arabdictUrl = if (url.contains("arabdict.com") && !url.contains(".mp3") && !url.contains("_")) {
-                                url
-                            } else {
-                                val encoded = Uri.encode(word)
-                                "https://www.arabdict.com/ar/deutsch-arabisch/$encoded"
+                            // Construct / Open appropriate dictionary with clean URL
+                            val targetUrl = when {
+                                url.contains("dwds.de") -> url
+                                url.contains("arabdict.com") && !url.contains(".mp3") && !url.contains("_") -> url
+                                else -> {
+                                    val encoded = Uri.encode(word)
+                                    "https://www.arabdict.com/ar/deutsch-arabisch/$encoded"
+                                }
                             }
                             
                             try {
-                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(arabdictUrl)).apply {
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(targetUrl)).apply {
                                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                 }
                                 context.startActivity(intent)
                             } catch (e: Exception) {
-                                val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.arabdict.com")).apply {
+                                val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.dwds.de")).apply {
                                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                 }
                                 context.startActivity(browserIntent)
@@ -466,22 +539,160 @@ class ReaderViewModel(
         hideTranslation()
     }
 
-    // ===== Background speech engine service triggers =====
+    // Serialization helper
+    fun serializeBlocks(blocks: List<OcrBlock>): String {
+        return blocks.joinToString("|") { block ->
+            val rect = block.boundingBox
+            val rectStr = if (rect != null) "${rect.left},${rect.top},${rect.right},${rect.bottom}" else "0,0,0,0"
+            "${block.text.replace(":", "\\:").replace("|", "\\|")}:$rectStr"
+        }
+    }
+
+    fun deserializeBlocks(serialized: String): List<OcrBlock> {
+        if (serialized.isBlank()) return emptyList()
+        val firstPipe = serialized.indexOf("|")
+        if (firstPipe == -1) return emptyList()
+        
+        val content = if (serialized.getOrNull(0)?.isDigit() == true && serialized.contains(",")) {
+            serialized.substring(firstPipe + 1)
+        } else {
+            serialized
+        }
+        
+        return content.split("|").mapNotNull { item ->
+            val parts = item.split(":")
+            if (parts.size >= 2) {
+                val text = parts[0].replace("\\:", ":").replace("\\|", "|")
+                val rectParts = parts[1].split(",")
+                if (rectParts.size == 4) {
+                    val left = rectParts[0].toIntOrNull() ?: 0
+                    val top = rectParts[1].toIntOrNull() ?: 0
+                    val right = rectParts[2].toIntOrNull() ?: 0
+                    val bottom = rectParts[3].toIntOrNull() ?: 0
+                    OcrBlock(text, android.graphics.Rect(left, top, right, bottom), emptyList())
+                } else null
+            } else null
+        }
+    }
+
+    // ===== Interactive Multi-page OCR Document Indexer =====
+    fun startIndexing(context: Context) {
+        val uri = pdfUri ?: return
+        if (_isOcrScanning.value) return
+        _isOcrScanning.value = true
+        _ocrProgressPage.value = 0
+        
+        viewModelScope.launch {
+            try {
+                val total = _pageCount.value
+                for (page in 0 until total) {
+                    _ocrProgressPage.value = page + 1
+                    val existing = repository.getPageOcrText(pdfId, page)
+                    if (existing == null) {
+                        var text = repository.extractPageTextWithPdfBox(uri, page)
+                        val bitmap = getCachedBitmapForPage(page) ?: getPageBitmap(uri, page, 1080)
+                        if (bitmap != null) {
+                            val ocrResult = ocrManager.recognizeText(bitmap, com.example.utils.OcrLanguage.AUTO)
+                            if (text.isBlank()) {
+                                text = ocrResult.fullText
+                            }
+                            val serialized = "${bitmap.width},${bitmap.height}|" + serializeBlocks(ocrResult.blocks)
+                            repository.savePageOcrText(pdfId, page, text, serialized)
+                        } else {
+                            if (text.isNotBlank()) {
+                                repository.savePageOcrText(pdfId, page, text, "")
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                _isOcrScanning.value = false
+            }
+        }
+    }
+
+    // ===== Selection Handles & Context Actions =====
+    fun startSelection(pageIndex: Int, wordIndex: Int, touchPos: Offset) {
+        _selectionStartPageIndex.value = pageIndex
+        _selectionStartWordIndex.value = wordIndex
+        _selectionEndWordIndex.value = wordIndex
+        _showSelectionMenu.value = false
+        updateSelectedText()
+    }
+
+    fun updateSelectionEnd(wordIndex: Int) {
+        _selectionEndWordIndex.value = wordIndex
+        updateSelectedText()
+    }
+
+    fun clearSelection() {
+        _selectionStartPageIndex.value = null
+        _selectionStartWordIndex.value = -1
+        _selectionEndWordIndex.value = -1
+        _showSelectionMenu.value = false
+        _selectedText.value = ""
+    }
+
+    fun showSelectionMenuAt(menuPos: Offset) {
+        _selectionMenuPosition.value = menuPos
+        _showSelectionMenu.value = true
+    }
+
+    private fun updateSelectedText() {
+        val page = _selectionStartPageIndex.value ?: return
+        val start = _selectionStartWordIndex.value
+        val end = _selectionEndWordIndex.value
+        if (start == -1 || end == -1) return
+
+        viewModelScope.launch {
+            val pageText = repository.getPageOcrText(pdfId, page) ?: return@launch
+            val blocks = deserializeBlocks(pageText.wordCoordinatesJson)
+            val range = if (start <= end) start..end else end..start
+            val validRange = range.first.coerceIn(blocks.indices)..range.last.coerceIn(blocks.indices)
+            val words = blocks.slice(validRange).map { it.text }
+            _selectedText.value = words.joinToString(" ")
+        }
+    }
+
+    // ===== Background speech engine service triggers mit Queued Sentence Tracking =====
     fun toggleTts(context: Context, pageIndex: Int) {
         if (_isTtsPlaying.value) {
             tts?.stop()
             _isTtsPlaying.value = false
         } else {
+            // Resume if sentences are already present and index is set
+            if (_ttsSentences.value.isNotEmpty() && _ttsCurrentSentenceIndex.value != -1) {
+                val hasArabic = _ttsSentences.value.any { s -> s.any { it in '\u0600'..'\u06FF' } }
+                speakSentence(context, _ttsCurrentSentenceIndex.value, hasArabic)
+                return
+            }
+
             viewModelScope.launch {
                 try {
                     val uri = pdfUri
                     if (uri != null) {
-                        val bitmap = getCachedBitmapForPage(pageIndex) ?: getPageBitmap(uri, pageIndex)
-                        if (bitmap != null) {
-                            val ocrResult = ocrManager.recognizeText(bitmap, com.example.utils.OcrLanguage.AUTO)
-                            val textToSpeak = ocrResult.fullText
-                            if (textToSpeak.isNotBlank()) {
-                                startTts(context, textToSpeak)
+                        var textToSpeak = ""
+                        val cachedOcr = repository.getPageOcrText(pdfId, pageIndex)
+                        if (cachedOcr != null) {
+                            textToSpeak = cachedOcr.text
+                        } else {
+                            val bitmap = getCachedBitmapForPage(pageIndex) ?: getPageBitmap(uri, pageIndex)
+                            if (bitmap != null) {
+                                val ocrResult = ocrManager.recognizeText(bitmap, com.example.utils.OcrLanguage.AUTO)
+                                textToSpeak = ocrResult.fullText
+                                val serialized = "${bitmap.width},${bitmap.height}|" + serializeBlocks(ocrResult.blocks)
+                                repository.savePageOcrText(pdfId, pageIndex, textToSpeak, serialized)
+                            }
+                        }
+                        
+                        if (textToSpeak.isNotBlank()) {
+                            val sentences = textToSpeak.split(Regex("[.!?؟\n]")).map { it.trim() }.filter { it.length > 2 }
+                            if (sentences.isNotEmpty()) {
+                                _ttsSentences.value = sentences
+                                val hasArabic = textToSpeak.any { it in '\u0600'..'\u06FF' }
+                                speakSentence(context, 0, hasArabic)
                                 return@launch
                             }
                         }
@@ -490,14 +701,25 @@ class ReaderViewModel(
                     e.printStackTrace()
                 }
 
-                startTts(context, "Seite ${pageIndex + 1}")
+                val sentences = listOf("صفحة ${pageIndex + 1}")
+                _ttsSentences.value = sentences
+                speakSentence(context, 0, false)
             }
         }
     }
 
-    private fun startTts(context: Context, text: String) {
-        val hasArabic = text.any { it in '\u0600'..'\u06FF' }
+    private fun speakSentence(context: Context, index: Int, hasArabic: Boolean) {
         val targetLocale = if (hasArabic) Locale("ar") else Locale.GERMAN
+        val list = _ttsSentences.value
+        _ttsCurrentSentenceIndex.value = index
+        
+        if (index < 0 || index >= list.size) {
+            _isTtsPlaying.value = false
+            _ttsCurrentSentenceIndex.value = -1
+            return
+        }
+        
+        val targetText = list[index]
 
         if (tts == null) {
             var tempTts: TextToSpeech? = null
@@ -505,15 +727,21 @@ class ReaderViewModel(
                 if (status == TextToSpeech.SUCCESS) {
                     tempTts?.let { engine ->
                         engine.language = targetLocale
-                        if (!hasArabic) {
-                            engine.setSpeechRate(0.85f)
-                        }
+                        engine.setSpeechRate(_ttsSpeed.value)
+                        
                         engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                            override fun onStart(utteranceId: String?) { _isTtsPlaying.value = true }
-                            override fun onDone(utteranceId: String?) { _isTtsPlaying.value = false }
-                            override fun onError(utteranceId: String?) { _isTtsPlaying.value = false }
+                            override fun onStart(utteranceId: String?) {
+                                _isTtsPlaying.value = true
+                            }
+                            override fun onDone(utteranceId: String?) {
+                                val nextIndex = (utteranceId?.toIntOrNull() ?: 0) + 1
+                                speakSentence(context, nextIndex, hasArabic)
+                            }
+                            override fun onError(utteranceId: String?) {
+                                _isTtsPlaying.value = false
+                            }
                         })
-                        engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "reader_tts")
+                        engine.speak(targetText, TextToSpeech.QUEUE_FLUSH, null, "$index")
                         _isTtsPlaying.value = true
                     }
                 }
@@ -521,33 +749,125 @@ class ReaderViewModel(
             tts = tempTts
         } else {
             tts?.language = targetLocale
-            if (!hasArabic) {
-                tts?.setSpeechRate(0.85f)
-            }
-            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "reader_tts")
+            tts?.setSpeechRate(_ttsSpeed.value)
+            tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                override fun onStart(utteranceId: String?) {
+                    _isTtsPlaying.value = true
+                }
+                override fun onDone(utteranceId: String?) {
+                    val nextIndex = (utteranceId?.toIntOrNull() ?: 0) + 1
+                    speakSentence(context, nextIndex, hasArabic)
+                }
+                override fun onError(utteranceId: String?) {
+                    _isTtsPlaying.value = false
+                }
+            })
+            tts?.speak(targetText, TextToSpeech.QUEUE_FLUSH, null, "$index")
             _isTtsPlaying.value = true
         }
     }
 
-    fun speak(text: String, context: Context) {
-        startTts(context, text)
+    fun stopTts() {
+        tts?.stop()
+        _isTtsPlaying.value = false
+        _ttsSentences.value = emptyList()
+        _ttsCurrentSentenceIndex.value = -1
     }
 
-    // ===== Search loops =====
+    fun setTtsSpeed(speed: Float) {
+        _ttsSpeed.value = speed
+        tts?.setSpeechRate(speed)
+    }
+
+    fun speak(text: String, context: Context) {
+        val sentences = listOf(text)
+        _ttsSentences.value = sentences
+        speakSentence(context, 0, text.any { it in '\u0600'..'\u06FF' })
+    }
+
+    // ===== Search inside PDF via indexed text cache =====
     fun toggleSearch() { _isSearchVisible.value = !_isSearchVisible.value }
     fun hideSearch() { _isSearchVisible.value = false; _searchQuery.value = "" }
-    fun search(q: String) {
+    
+    fun search(q: String, context: Context) {
         _searchQuery.value = q
-        if (q.isNotBlank()) {
-            _searchResultCount.value = 5 // mocks
-            _searchResultIndex.value = 1
-        } else {
+        if (q.isBlank()) {
+            _searchResults.value = emptyList()
             _searchResultCount.value = 0
             _searchResultIndex.value = 0
+            return
+        }
+
+        viewModelScope.launch {
+            val anyCached = repository.getAllOcrPageTexts(pdfId).isNotEmpty()
+            if (!anyCached) {
+                startIndexing(context)
+            }
+
+            val cachedTexts = repository.getAllOcrPageTexts(pdfId)
+            val matches = mutableListOf<SearchMatch>()
+            cachedTexts.forEach { pageText ->
+                val text = pageText.text
+                val pageIndex = pageText.page
+                
+                var index = text.lowercase().indexOf(q.lowercase())
+                while (index != -1) {
+                    val blocks = deserializeBlocks(pageText.wordCoordinatesJson)
+                    var foundRect: android.graphics.Rect? = null
+                    var currentLen = 0
+                    var wordIdx = -1
+                    for (i in blocks.indices) {
+                        val word = blocks[i]
+                        currentLen += word.text.length + 1
+                        if (currentLen >= index) {
+                            foundRect = word.boundingBox
+                            wordIdx = i
+                            break
+                        }
+                    }
+
+                    val rect = foundRect ?: android.graphics.Rect(50, 50, 150, 100)
+                    matches.add(
+                        SearchMatch(
+                            pageIndex = pageIndex,
+                            text = q,
+                            wordIndexStart = wordIdx.coerceAtLeast(0),
+                            wordIndexEnd = wordIdx.coerceAtLeast(0),
+                            left = rect.left.toFloat(),
+                            top = rect.top.toFloat(),
+                            right = rect.right.toFloat(),
+                            bottom = rect.bottom.toFloat()
+                        )
+                    )
+                    index = text.lowercase().indexOf(q.lowercase(), index + q.length)
+                }
+            }
+
+            _searchResults.value = matches
+            _searchResultCount.value = matches.size
+            _searchResultIndex.value = 0
+            
+            if (matches.isNotEmpty()) {
+                setPage(matches[0].pageIndex)
+            }
         }
     }
-    fun nextSearchResult() { _searchResultIndex.value = (_searchResultIndex.value + 1) % _searchResultCount.value.coerceAtLeast(1) }
-    fun prevSearchResult() { _searchResultIndex.value = (_searchResultIndex.value - 1 + _searchResultCount.value).coerceAtLeast(0) % _searchResultCount.value.coerceAtLeast(1) }
+
+    fun nextSearchResult() {
+        val matches = _searchResults.value
+        if (matches.isEmpty()) return
+        val nextIdx = (_searchResultIndex.value + 1) % matches.size
+        _searchResultIndex.value = nextIdx
+        setPage(matches[nextIdx].pageIndex)
+    }
+
+    fun prevSearchResult() {
+        val matches = _searchResults.value
+        if (matches.isEmpty()) return
+        val prevIdx = (_searchResultIndex.value - 1 + matches.size) % matches.size
+        _searchResultIndex.value = prevIdx
+        setPage(matches[prevIdx].pageIndex)
+    }
 
     // ===== Bookmarks manager =====
     fun showBookmarkDialog() { _showBookmarkDialog.value = true }
