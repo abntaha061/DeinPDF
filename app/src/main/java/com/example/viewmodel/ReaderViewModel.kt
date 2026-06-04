@@ -299,47 +299,72 @@ class ReaderViewModel(
                     if (clickedLink != null) {
                         val url = clickedLink.url
                         
-                        // Extract the word from the URL
-                        val word = when {
-                            url.contains("arabdict.com") -> {
-                                url.substringAfterLast("/")
-                                    .replace("-", " ")
-                                    .trim()
+                        // ===== Extract clean word from any URL type =====
+                        fun extractCleanWord(inputUrl: String): String {
+                            val rawWord = when {
+                                // Google TTS: ...&q=der_Kontakt.mp3
+                                inputUrl.contains("translate_tts") || inputUrl.contains("translate.google") -> {
+                                    Uri.parse(inputUrl).getQueryParameter("q") ?: ""
+                                }
+                                // Arabdict: .../deutsch-arabisch/Kontakt
+                                inputUrl.contains("arabdict.com") -> {
+                                    inputUrl.substringAfterLast("/")
+                                }
+                                // DWDS: .../wb/Kontakt
+                                inputUrl.contains("dwds.de") -> {
+                                    inputUrl.substringAfterLast("/")
+                                }
+                                else -> inputUrl.substringAfterLast("/")
                             }
-                            url.contains("dwds.de/wb/") -> {
-                                url.substringAfterLast("/wb/")
-                                    .replace("-", " ")
-                                    .trim()
-                            }
-                            url.contains("translate_tts") -> {
-                                Uri.parse(url).getQueryParameter("q") ?: ""
-                            }
-                            else -> url.substringAfterLast("/").trim()
+
+                            return rawWord
+                                // Remove file extension (.mp3, .wav, .ogg, .aac, .m4a, .flac)
+                                .replace(Regex("\\.(mp3|wav|ogg|aac|m4a|flac)$", RegexOption.IGNORE_CASE), "")
+                                // Replace underscores with spaces
+                                .replace("_", " ")
+                                // Remove German definite/indefinite articles from start
+                                .replace(Regex("^(der|die|das|ein|eine|einem|einer|einen|des|dem|den)\\s+", RegexOption.IGNORE_CASE), "")
+                                // Trim spaces
+                                .trim()
+                                // Take only first word if multiple exist
+                                .split(" ")
+                                .firstOrNull { it.isNotBlank() } ?: rawWord.trim()
                         }
+
+                        val word = extractCleanWord(url)
                         
-                        // Speak German word right away
-                        if (word.isNotBlank()) {
-                            speak(word, context)
-                        }
-                        
-                        // Construct / Open Arabdict
-                        val arabdictUrl = if (url.contains("arabdict.com")) {
-                            url
+                        val isPronunciation = url.contains("translate_tts") || 
+                                              url.contains("translate.google") || 
+                                              url.contains("dwds.de") || 
+                                              url.contains(".mp3") || 
+                                              url.contains(".wav") || 
+                                              url.contains(".ogg")
+
+                        if (isPronunciation) {
+                            // Speak German word right away and don't open browser
+                            if (word.isNotBlank()) {
+                                speak(word, context)
+                            }
                         } else {
-                            val encoded = Uri.encode(word)
-                            "https://www.arabdict.com/ar/deutsch-arabisch/$encoded"
-                        }
-                        
-                        try {
-                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(arabdictUrl)).apply {
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            // Construct / Open Arabdict with clean URL and don't speak
+                            val arabdictUrl = if (url.contains("arabdict.com") && !url.contains(".mp3") && !url.contains("_")) {
+                                url
+                            } else {
+                                val encoded = Uri.encode(word)
+                                "https://www.arabdict.com/ar/deutsch-arabisch/$encoded"
                             }
-                            context.startActivity(intent)
-                        } catch (e: Exception) {
-                            val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.arabdict.com")).apply {
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            
+                            try {
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(arabdictUrl)).apply {
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.arabdict.com")).apply {
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                context.startActivity(browserIntent)
                             }
-                            context.startActivity(browserIntent)
                         }
                         return@launch
                     }
@@ -459,6 +484,9 @@ class ReaderViewModel(
                 if (status == TextToSpeech.SUCCESS) {
                     tempTts?.let { engine ->
                         engine.language = targetLocale
+                        if (!hasArabic) {
+                            engine.setSpeechRate(0.85f)
+                        }
                         engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                             override fun onStart(utteranceId: String?) { _isTtsPlaying.value = true }
                             override fun onDone(utteranceId: String?) { _isTtsPlaying.value = false }
@@ -472,6 +500,9 @@ class ReaderViewModel(
             tts = tempTts
         } else {
             tts?.language = targetLocale
+            if (!hasArabic) {
+                tts?.setSpeechRate(0.85f)
+            }
             tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "reader_tts")
             _isTtsPlaying.value = true
         }
