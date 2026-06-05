@@ -355,6 +355,28 @@ class ReaderViewModel(
     }
 
 
+    fun checkLinkAtOffset(
+        offset: Offset,
+        pageIndex: Int,
+        canvasSize: androidx.compose.ui.geometry.Size
+    ): Boolean {
+        if (canvasSize.width <= 0f || canvasSize.height <= 0f) return false
+        val links = kotlinx.coroutines.runBlocking {
+            getPageLinks(pageIndex)
+        }
+        if (links.isEmpty()) return false
+        val normalizedX = offset.x / canvasSize.width
+        val normalizedY = offset.y / canvasSize.height
+        val clickedLink = links.find { link ->
+            val pdfTouchX = normalizedX * link.pageWidth
+            val pdfTouchY = normalizedY * link.pageHeight
+            pdfTouchX >= link.x && pdfTouchX <= (link.x + link.width) &&
+                    pdfTouchY >= link.y && pdfTouchY <= (link.y + link.height)
+        }
+        return clickedLink != null
+    }
+
+
     // ===== Intercept word under touch coordinates =====
     fun translateWordAtOffset(
         offset: Offset,

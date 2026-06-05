@@ -662,7 +662,8 @@ fun ReaderScreen(
                                 onDwdsClick = { activeDwdsWordToWebview = it },
                                 readerBgTone = readerBgTone,
                                 onNonLinkClick = {
-                                    showWpsMenu = true
+                                    showBottomSelectionBar = !showBottomSelectionBar
+                                    showMainToolsMenu = false
                                     viewModel.hideTranslation()
                                 }
                             )
@@ -2267,7 +2268,10 @@ fun PdfPageRenderItem(
 
     val pageTextState = remember(pageIndex, pdfUri) { mutableStateOf<OcrPageText?>(null) }
     LaunchedEffect(pageIndex, pdfUri) {
-        pageTextState.value = viewModel.getPageOcrText(pageIndex)
+        val ocrText = viewModel.getPageOcrText(pageIndex)
+        pageTextState.value = ocrText
+        val words = viewModel.deserializeBlocks(ocrText?.wordCoordinatesJson ?: "")
+        android.util.Log.d("READER_DEBUG", "Page loaded, words count: ${words.size}")
     }
     val wordBlocks = remember(pageTextState.value) {
         viewModel.deserializeBlocks(pageTextState.value?.wordCoordinatesJson ?: "")
@@ -2304,64 +2308,6 @@ fun PdfPageRenderItem(
                         .fillMaxWidth()
                         .aspectRatio(aspect)
                         .onSizeChanged { containerSize = it }
-                        .pointerInput(currentTool, annotationSubTool, selectionStartPageIndex) {
-                            detectTapGestures(
-                                onDoubleTap = { tapOffset ->
-                                    onDoubleTapZoom(tapOffset, containerSize)
-                                },
-                                onLongPress = { tapOffset ->
-                                    val word = viewModel.findWordAtOffset(
-                                        tapOffset,
-                                        pageIndex,
-                                        Size(containerSize.width.toFloat(), containerSize.height.toFloat())
-                                    )
-                                    if (word != null) {
-                                        selectedWord = word
-                                        selectionOffset = tapOffset
-                                        showSelectionToolbar = true
-                                        viewModel.clearSelection()
-                                    }
-                                },
-                                onTap = { tapOffset ->
-                                    showSelectionToolbar = false
-                                    selectedWord = ""
-                                    if (selectionStartPageIndex != null) {
-                                        viewModel.clearSelection()
-                                    } else {
-                                        when (currentTool) {
-                                            ReaderTool.NONE, ReaderTool.TRANSLATE -> {
-                                                val canvasSize = Size(containerSize.width.toFloat(), containerSize.height.toFloat())
-                                                viewModel.translateWordAtOffset(tapOffset, canvasSize, pageIndex, context, onNonLinkClick)
-                                            }
-                                            ReaderTool.HIGHLIGHT -> {
-                                                viewModel.addAnnotation(
-                                                    PdfAnnotation(
-                                                        pdfId = viewModel.pdfId,
-                                                        page = pageIndex,
-                                                        type = AnnotationType.HIGHLIGHT,
-                                                        x = tapOffset.x - 70f,
-                                                        y = tapOffset.y - 14f,
-                                                        width = 140f,
-                                                        height = 28f,
-                                                        colorHex = "#fbbf24"
-                                                    )
-                                                )
-                                            }
-                                            ReaderTool.NOTE -> {
-                                                if (annotationSubTool == "sticky") {
-                                                    onAddStickyNote(pageIndex, tapOffset)
-                                                } else {
-                                                    onAddText(pageIndex, tapOffset)
-                                                }
-                                            }
-                                            else -> {
-                                                onShowToolbar()
-                                            }
-                                        }
-                                    }
-                                }
-                            )
-                        }
                         .pointerInput(wordBlocks, containerSize, selectionStartPageIndex, selectionStartWordIdx, selectionEndWordIdx) {
                             val scaleX = containerSize.width.toFloat() / 1080f
                             val aspectVal = bitmap.width.toFloat() / bitmap.height.toFloat()
@@ -2558,7 +2504,74 @@ fun PdfPageRenderItem(
                     Image(
                         bitmap = bitmap.asImageBitmap(),
                         contentDescription = "قراءة صفحة ${pageIndex + 1}",
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .pointerInput(currentTool, annotationSubTool, selectionStartPageIndex) {
+                                detectTapGestures(
+                                    onDoubleTap = { tapOffset ->
+                                        onDoubleTapZoom(tapOffset, containerSize)
+                                    },
+                                    onLongPress = { tapOffset ->
+                                        android.util.Log.d("READER_DEBUG", "LongPress detected at offset=$tapOffset")
+                                        val word = viewModel.findWordAtOffset(
+                                            tapOffset,
+                                            pageIndex,
+                                            Size(containerSize.width.toFloat(), containerSize.height.toFloat())
+                                        ) ?: "تحديد" // Fallback: show selection toolbar anyway without word detection
+                                        
+                                        selectedWord = word
+                                        selectionOffset = tapOffset
+                                        showSelectionToolbar = true
+                                        viewModel.clearSelection()
+                                        android.util.Log.d("READER_DEBUG", "Showing toolbar for: $selectedWord")
+                                    },
+                                    onTap = { tapOffset ->
+                                        showSelectionToolbar = false
+                                        selectedWord = ""
+                                        if (selectionStartPageIndex != null) {
+                                            viewModel.clearSelection()
+                                        } else {
+                                            when (currentTool) {
+                                                ReaderTool.NONE, ReaderTool.TRANSLATE -> {
+                                                    val canvasSize = Size(containerSize.width.toFloat(), containerSize.height.toFloat())
+                                                    android.util.Log.d("READER_DEBUG", "Tap detected - translation/link check")
+                                                    val hasLink = viewModel.checkLinkAtOffset(tapOffset, pageIndex, canvasSize)
+                                                    if (hasLink) {
+                                                        viewModel.translateWordAtOffset(tapOffset, canvasSize, pageIndex, context, onNonLinkClick)
+                                                    } else {
+                                                        onNonLinkClick()
+                                                        // cleared
+                                                    }
+                                                }
+                                                ReaderTool.HIGHLIGHT -> {
+                                                    viewModel.addAnnotation(
+                                                        PdfAnnotation(
+                                                            pdfId = viewModel.pdfId,
+                                                            page = pageIndex,
+                                                            type = AnnotationType.HIGHLIGHT,
+                                                            x = tapOffset.x - 70f,
+                                                            y = tapOffset.y - 14f,
+                                                            width = 140f,
+                                                            height = 28f,
+                                                            colorHex = "#fbbf24"
+                                                        )
+                                                    )
+                                                }
+                                                ReaderTool.NOTE -> {
+                                                    if (annotationSubTool == "sticky") {
+                                                        onAddStickyNote(pageIndex, tapOffset)
+                                                    } else {
+                                                        onAddText(pageIndex, tapOffset)
+                                                    }
+                                                }
+                                                else -> {
+                                                    onShowToolbar()
+                                                }
+                                            }
+                                        }
+                                    }
+                                )
+                            },
                         contentScale = ContentScale.Fit
                     )
 
@@ -2578,37 +2591,39 @@ fun PdfPageRenderItem(
                     Canvas(
                         modifier = Modifier
                             .fillMaxSize()
-                            .pointerInput(currentTool) {
+                            .then(
                                 if (currentTool == ReaderTool.DRAW) {
-                                    detectDragGestures(
-                                        onDragStart = { startOffset -> 
-                                            currentInkPoints.clear()
-                                            currentInkPoints.add(startOffset) 
-                                        },
-                                        onDrag = { change, dragAmount ->
-                                            change.consume()
-                                            val lastPoint = currentInkPoints.lastOrNull() ?: Offset.Zero
-                                            currentInkPoints.add(lastPoint + dragAmount)
-                                        },
-                                        onDragEnd = {
-                                            if (currentInkPoints.isNotEmpty()) {
-                                                val pointsStr = currentInkPoints.joinToString(";") { "${it.x},${it.y}" }
-                                                viewModel.addAnnotation(
-                                                    PdfAnnotation(
-                                                        pdfId = viewModel.pdfId,
-                                                        page = pageIndex,
-                                                        type = AnnotationType.INK,
-                                                        content = pointsStr,
-                                                        colorHex = "#ef4444",
-                                                        width = 4f
-                                                    )
-                                                )
+                                    Modifier.pointerInput(currentTool) {
+                                        detectDragGestures(
+                                            onDragStart = { startOffset -> 
                                                 currentInkPoints.clear()
+                                                currentInkPoints.add(startOffset) 
+                                            },
+                                            onDrag = { change, dragAmount ->
+                                                change.consume()
+                                                val lastPoint = currentInkPoints.lastOrNull() ?: Offset.Zero
+                                                currentInkPoints.add(lastPoint + dragAmount)
+                                            },
+                                            onDragEnd = {
+                                                if (currentInkPoints.isNotEmpty()) {
+                                                    val pointsStr = currentInkPoints.joinToString(";") { "${it.x},${it.y}" }
+                                                    viewModel.addAnnotation(
+                                                        PdfAnnotation(
+                                                            pdfId = viewModel.pdfId,
+                                                            page = pageIndex,
+                                                            type = AnnotationType.INK,
+                                                            content = pointsStr,
+                                                            colorHex = "#ef4444",
+                                                            width = 4f
+                                                        )
+                                                    )
+                                                    currentInkPoints.clear()
+                                                }
                                             }
-                                        }
-                                    )
-                                }
-                            }
+                                        )
+                                    }
+                                } else Modifier
+                            )
                     ) {
                         // 1. Draw Highlights
                         annotations.filter { it.page == pageIndex && it.type == AnnotationType.HIGHLIGHT }
