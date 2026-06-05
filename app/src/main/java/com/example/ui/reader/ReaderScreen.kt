@@ -138,6 +138,8 @@ fun ReaderScreen(
     var isRotationLocked by remember { mutableStateOf(false) }
     var isCropEnabled by remember { mutableStateOf(false) }
     var activeDwdsWordToWebview by remember { mutableStateOf<String?>(null) }
+    var selectedWordForMenu by remember { mutableStateOf("") }
+    var showTextContextMenu by remember { mutableStateOf(false) }
 
     var showBottomSelectionBar by remember { mutableStateOf(false) }
     var showMainToolsMenu by remember { mutableStateOf(false) }
@@ -149,9 +151,12 @@ fun ReaderScreen(
     }
 
     // Intercept system back button to close any open overlays first before exiting reader
-    val isBackHandlerEnabled = showWpsMenu || showTranslationCard || showSummary || showQaChat || (activeStickyNoteToShow != null) || isSearchVisible || (activeDwdsWordToWebview != null) || showBottomSelectionBar || showMainToolsMenu
+    val isBackHandlerEnabled = showWpsMenu || showTranslationCard || showSummary || showQaChat || (activeStickyNoteToShow != null) || isSearchVisible || (activeDwdsWordToWebview != null) || showBottomSelectionBar || showMainToolsMenu || showTextContextMenu
     BackHandler(enabled = isBackHandlerEnabled) {
         when {
+            showTextContextMenu -> {
+                showTextContextMenu = false
+            }
             showBottomSelectionBar -> {
                 showBottomSelectionBar = false
             }
@@ -698,6 +703,14 @@ fun ReaderScreen(
                                 settledScale = settledScale,
                                 onShowToolbar = showToolbarTemporarily,
                                 onDoubleTapZoom = onDoubleTapZoomPage,
+                                onLongPressOcrResult = { extractedWord ->
+                                    if (extractedWord.isNotBlank()) {
+                                        selectedWordForMenu = extractedWord
+                                        showTextContextMenu = true
+                                    } else {
+                                        showWpsMenu = true
+                                    }
+                                },
                                 onAddStickyNote = { idx, offset ->
                                     selectedPageIndexForNote = idx
                                     selectedOffsetForNote = offset
@@ -2267,6 +2280,133 @@ fun ReaderScreen(
                     }
                 }
             }
+
+            // ===== Context Menu ثابت لا يتأثر بالـ Zoom (Overlay مستقل) =====
+            AnimatedVisibility(
+                visible = showTextContextMenu && selectedWordForMenu.isNotBlank(),
+                enter = fadeIn() + scaleIn(initialScale = 0.8f),
+                exit = fadeOut() + scaleOut()
+            ) {
+                // Scrim خلفية شفافة للإغلاق عند الضغط خارج القائمة
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() }
+                        ) { showTextContextMenu = false }
+                )
+
+                // القائمة نفسها — في المنتصف أسفل الشاشة (ثابتة دائماً)
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(bottom = 120.dp),
+                    contentAlignment = Alignment.BottomCenter
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color(0xFF1E1E2E),
+                        shadowElevation = 12.dp,
+                        border = BorderStroke(1.dp, Color(0xFF3B82F6).copy(0.3f)),
+                        modifier = Modifier.wrapContentSize()
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+
+                            // الكلمة المستخرجة
+                            Text(
+                                text = selectedWordForMenu,
+                                color = Color(0xFFF59E0B),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 12.dp),
+                                textAlign = TextAlign.Center
+                            )
+
+                            HorizontalDivider(color = Color(0xFF2A2A3E))
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // صف الأزرار — حجمها ثابت دائماً
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+
+                                // نسخ
+                                ContextMenuBtn(
+                                    icon = Icons.Default.ContentCopy,
+                                    label = "نسخ",
+                                    color = Color(0xFF3B82F6)
+                                ) {
+                                    val clipboard = context.getSystemService(
+                                        android.content.Context.CLIPBOARD_SERVICE
+                                    ) as android.content.ClipboardManager
+                                    clipboard.setPrimaryClip(
+                                        android.content.ClipData.newPlainText("word", selectedWordForMenu)
+                                    )
+                                    android.widget.Toast.makeText(context, "✅ تم النسخ", android.widget.Toast.LENGTH_SHORT).show()
+                                    showTextContextMenu = false
+                                }
+
+                                // نطق
+                                ContextMenuBtn(
+                                    icon = Icons.Default.VolumeUp,
+                                    label = "نطق",
+                                    color = Color(0xFF06B6D4)
+                                ) {
+                                    viewModel.speak(selectedWordForMenu, context)
+                                }
+
+                                // ترجمة
+                                ContextMenuBtn(
+                                    icon = Icons.Default.Translate,
+                                    label = "ترجمة",
+                                    color = Color(0xFF8B5CF6)
+                                ) {
+                                    viewModel.translateText(selectedWordForMenu)
+                                    showTextContextMenu = false
+                                }
+
+                                // تمييز
+                                ContextMenuBtn(
+                                    icon = Icons.Default.BorderColor,
+                                    label = "تمييز",
+                                    color = Color(0xFFF59E0B)
+                                ) {
+                                    viewModel.addAnnotation(
+                                        PdfAnnotation(
+                                            pdfId = pdfId,
+                                            page = currentPage,
+                                            type = AnnotationType.HIGHLIGHT,
+                                            content = selectedWordForMenu,
+                                            colorHex = "#fbbf24",
+                                            x = 0f,
+                                            y = 0f,
+                                            width = 0f,
+                                            height = 0f
+                                        )
+                                    )
+                                    showTextContextMenu = false
+                                    android.widget.Toast.makeText(context, "✅ تم التمييز", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+
+                                // حفظ في مفرداتي
+                                ContextMenuBtn(
+                                    icon = Icons.Default.BookmarkAdd,
+                                    label = "حفظ",
+                                    color = Color(0xFF22C55E)
+                                ) {
+                                    viewModel.saveWordToVocabulary(selectedWordForMenu)
+                                    showTextContextMenu = false
+                                    android.widget.Toast.makeText(context, "✅ حُفظت في مفرداتك", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -2281,6 +2421,7 @@ fun PdfPageRenderItem(
     settledScale: Float,
     onShowToolbar: () -> Unit,
     onDoubleTapZoom: (Offset, IntSize) -> Unit,
+    onLongPressOcrResult: (String) -> Unit = {},
     onAddStickyNote: (Int, Offset) -> Unit,
     onAddText: (Int, Offset) -> Unit,
     onStickyNoteClick: (PdfAnnotation) -> Unit,
@@ -2484,8 +2625,17 @@ fun PdfPageRenderItem(
                                         viewModel.showSelectionMenuAt(Offset(containerSize.width / 2f, 40f))
                                         android.util.Log.d("READER_DEBUG", "Started selection at index $clickedIndex")
                                     } else {
-                                        android.util.Log.w("READER_DEBUG", "No word found at $tapOffset")
-                                        android.widget.Toast.makeText(context, "لم يتم العثور على نص هنا", android.widget.Toast.LENGTH_SHORT).show()
+                                        android.util.Log.d("READER_DEBUG", "Scanned PDF: running local OCR on tap position")
+                                        onShowToolbar()
+                                        viewModel.ocrAtPosition(
+                                            uri = pdfUri,
+                                            pageIndex = pageIndex,
+                                            tapX = tapOffset.x,
+                                            tapY = tapOffset.y,
+                                            pageViewWidth = containerSize.width
+                                        ) { extractedWord ->
+                                            onLongPressOcrResult(extractedWord)
+                                        }
                                     }
                                 },
                                 onTap = { tapOffset ->
@@ -3407,6 +3557,27 @@ fun ToolListItem(
             tint = Color.White.copy(alpha = 0.3f),
             modifier = Modifier.size(16.dp)
         )
+    }
+}
+
+@Composable
+fun ContextMenuBtn(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    color: Color,
+    onClick: () -> Unit
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(color.copy(alpha = 0.12f))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 8.dp)
+    ) {
+        Icon(icon, null, tint = color, modifier = Modifier.size(22.dp))
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(label, color = color, fontSize = 10.sp, fontWeight = FontWeight.Medium)
     }
 }
 

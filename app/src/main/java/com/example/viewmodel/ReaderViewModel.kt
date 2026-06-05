@@ -29,6 +29,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import java.util.Locale
+import kotlin.math.pow
 import com.example.utils.OcrBlock
 import com.example.utils.OcrResult
 import android.graphics.RectF
@@ -1408,6 +1409,102 @@ class ReaderViewModel(
     fun findWordAtOffset(offset: Offset, pageIndex: Int, canvasSize: androidx.compose.ui.geometry.Size? = null): String? {
         if (canvasSize == null || canvasSize.width <= 0f || canvasSize.height <= 0f) return null
         return findWordAtOffset(offset, pageIndex, canvasSize.width, canvasSize.height)
+    }
+
+    fun ocrAtPosition(
+        uri: Uri,
+        pageIndex: Int,
+        tapX: Float,
+        tapY: Float,
+        pageViewWidth: Int,
+        onResult: (String) -> Unit
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                // رندر الصفحة كاملة بجودة عالية
+                val fullBitmap = repository.renderPdfPage(uri, pageIndex, pageViewWidth) ?: run {
+                    viewModelScope.launch(Dispatchers.Main) { onResult("") }
+                    return@launch
+                }
+
+                // حساب منطقة الاقتصاص حول نقطة الضغط (±80 بكسل)
+                val cropRadius = (fullBitmap.width * 0.15f).toInt()
+                val cropX = (tapX.toInt() - cropRadius).coerceAtLeast(0)
+                val cropY = (tapY.toInt() - cropRadius).coerceAtLeast(0)
+                val cropW = (cropRadius * 2).coerceAtMost(fullBitmap.width - cropX)
+                val cropH = (cropRadius * 2).coerceAtMost(fullBitmap.height - cropY)
+
+                val minCropW = cropW.coerceAtLeast(50)
+                val minCropH = cropH.coerceAtLeast(50)
+
+                // اقتصاص منطقة صغيرة حول الضغط للـ OCR
+                val croppedBitmap = Bitmap.createBitmap(
+                    fullBitmap, cropX, cropY,
+                    minCropW,
+                    minCropH
+                )
+                fullBitmap.recycle()
+
+                val image = com.google.mlkit.vision.common.InputImage.fromBitmap(croppedBitmap, 0)
+
+                // جرب Latin (للألمانية) أولاً
+                val latinRecognizer = com.google.mlkit.vision.text.TextRecognition.getClient(
+                    com.google.mlkit.vision.text.latin.TextRecognizerOptions.DEFAULT_OPTIONS
+                )
+
+                latinRecognizer.process(image)
+                    .addOnSuccessListener { result ->
+                        val fullText = result.text.trim()
+
+                        // استخرج أقرب كلمة لنقطة الضغط
+                        val closestWord = result.textBlocks
+                            .flatMap { it.lines }
+                            .flatMap { it.elements }
+                            .minByOrNull { element ->
+                                val box = element.boundingBox ?: return@minByOrNull Float.MAX_VALUE
+                                val cx = box.exactCenterX()
+                                val cy = box.exactCenterY()
+                                kotlin.math.sqrt(
+                                    ((cx - cropRadius).pow(2) + (cy - cropRadius).pow(2)).toDouble()
+                                ).toFloat()
+                            }?.text?.trim() ?: ""
+
+                        val wordToReturn = when {
+                            closestWord.isNotBlank() -> closestWord
+                            fullText.isNotBlank() -> fullText.split("\\s+".toRegex()).firstOrNull() ?: ""
+                            else -> ""
+                        }
+
+                        croppedBitmap.recycle()
+                        viewModelScope.launch(Dispatchers.Main) {
+                            onResult(wordToReturn)
+                        }
+                    }
+                    .addOnFailureListener {
+                        croppedBitmap.recycle()
+                        viewModelScope.launch(Dispatchers.Main) {
+                            onResult("")
+                        }
+                    }
+
+            } catch (e: Exception) {
+                viewModelScope.launch(Dispatchers.Main) { onResult("") }
+            }
+        }
+    }
+
+    fun saveWordToVocabulary(word: String) {
+        viewModelScope.launch {
+            repository.addWord(
+                VocabularyWord(
+                    originalWord = word,
+                    translatedWord = "",
+                    sourceLang = "de",
+                    targetLang = "ar",
+                    pdfSource = pdfName
+                )
+            )
+        }
     }
 
     override fun onCleared() {
