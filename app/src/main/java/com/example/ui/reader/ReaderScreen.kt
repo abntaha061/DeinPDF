@@ -2266,15 +2266,35 @@ fun PdfPageRenderItem(
     val searchQuery by viewModel.searchQuery.collectAsState()
     val searchResults by viewModel.searchResults.collectAsState()
 
+    val pageWordsMapState by viewModel.pageWordsMap.collectAsState()
+    val pageWordsData = pageWordsMapState[pageIndex]
+    val pageWords = pageWordsData?.words ?: emptyList()
+
     val pageTextState = remember(pageIndex, pdfUri) { mutableStateOf<OcrPageText?>(null) }
     LaunchedEffect(pageIndex, pdfUri) {
+        viewModel.loadPageWords(pdfUri, pageIndex, context)
         val ocrText = viewModel.getPageOcrText(pageIndex)
         pageTextState.value = ocrText
         val words = viewModel.deserializeBlocks(ocrText?.wordCoordinatesJson ?: "")
         android.util.Log.d("READER_DEBUG", "Page loaded, words count: ${words.size}")
     }
-    val wordBlocks = remember(pageTextState.value) {
-        viewModel.deserializeBlocks(pageTextState.value?.wordCoordinatesJson ?: "")
+    val wordBlocks = remember(pageTextState.value, pageWordsData) {
+        if (pageWordsData != null && pageWordsData.words.isNotEmpty()) {
+            val scale = 1080f / pageWordsData.pageWidth
+            pageWordsData.words.map { word ->
+                val l = word.rect.left * scale
+                val t = word.rect.top * scale
+                val r = word.rect.right * scale
+                val b = word.rect.bottom * scale
+                com.example.utils.OcrBlock(
+                    text = word.word,
+                    boundingBox = android.graphics.Rect(l.toInt(), t.toInt(), r.toInt(), b.toInt()),
+                    lines = emptyList()
+                )
+            }
+        } else {
+            viewModel.deserializeBlocks(pageTextState.value?.wordCoordinatesJson ?: "")
+        }
     }
 
     Box(
@@ -2316,7 +2336,7 @@ fun PdfPageRenderItem(
                             
                             val isSelectionOnThisPage = selectionStartPageIndex == pageIndex && selectionStartWordIdx != -1 && selectionEndWordIdx != -1
                             
-                            if (isSelectionOnThisPage) {
+                            if (isSelectionOnThisPage && wordBlocks.isNotEmpty()) {
                                 detectDragGestures(
                                     onDragStart = { startOffset ->
                                         val startBlock = wordBlocks.getOrNull(selectionStartWordIdx)
@@ -2368,26 +2388,113 @@ fun PdfPageRenderItem(
                             }
                         }
                         .pointerInput(wordBlocks, currentTool) {
-                            detectDragGesturesAfterLongPress(
-                                onDragStart = { startOffset ->
-                                    val clickedIndex = findWordUnderTouch(startOffset, containerSize, wordBlocks)
+                            if (currentTool == ReaderTool.NONE || currentTool == ReaderTool.TRANSLATE) {
+                                detectDragGesturesAfterLongPress(
+                                    onDragStart = { startOffset ->
+                                        val clickedIndex = findWordUnderTouch(startOffset, containerSize, wordBlocks)
+                                        if (clickedIndex != -1) {
+                                            viewModel.startSelection(pageIndex, clickedIndex, startOffset)
+                                        }
+                                    },
+                                    onDrag = { change, dragAmount ->
+                                        change.consume()
+                                        val touchOffset = change.position
+                                        val clickedIndex = findWordUnderTouch(touchOffset, containerSize, wordBlocks)
+                                        if (clickedIndex != -1) {
+                                            viewModel.updateSelectionEnd(clickedIndex)
+                                        }
+                                    },
+                                    onDragEnd = {
+                                        viewModel.showSelectionMenuAt(Offset(containerSize.width / 2f, 40f))
+                                    },
+                                    onDragCancel = {
+                                        viewModel.clearSelection()
+                                    }
+                                )
+                            }
+                        }
+                        .pointerInput(currentTool, annotationSubTool, selectionStartPageIndex, wordBlocks, containerSize) {
+                            detectTapGestures(
+                                onDoubleTap = { tapOffset ->
+                                    onDoubleTapZoom(tapOffset, containerSize)
+                                },
+                                onLongPress = { tapOffset ->
+                                    android.util.Log.d("READER_DEBUG", "LongPress detected at offset=$tapOffset")
+                                    val clickedIndex = findWordUnderTouch(tapOffset, containerSize, wordBlocks)
                                     if (clickedIndex != -1) {
-                                        viewModel.startSelection(pageIndex, clickedIndex, startOffset)
+                                        viewModel.startSelection(pageIndex, clickedIndex, tapOffset)
+                                        viewModel.showSelectionMenuAt(Offset(containerSize.width / 2f, 40f))
+                                        android.util.Log.d("READER_DEBUG", "Started selection at index $clickedIndex")
+                                    } else {
+                                        android.util.Log.w("READER_DEBUG", "No word found at $tapOffset")
+                                        android.widget.Toast.makeText(context, "لم يتم العثور على نص هنا", android.widget.Toast.LENGTH_SHORT).show()
                                     }
                                 },
-                                onDrag = { change, dragAmount ->
-                                    change.consume()
-                                    val touchOffset = change.position
-                                    val clickedIndex = findWordUnderTouch(touchOffset, containerSize, wordBlocks)
-                                    if (clickedIndex != -1) {
-                                        viewModel.updateSelectionEnd(clickedIndex)
+                                onTap = { tapOffset ->
+                                    if (selectionStartPageIndex != null) {
+                                        viewModel.clearSelection()
+                                    } else {
+                                        when (currentTool) {
+                                            ReaderTool.NONE, ReaderTool.TRANSLATE -> {
+                                                val canvasSize = Size(containerSize.width.toFloat(), containerSize.height.toFloat())
+                                                android.util.Log.d("READER_DEBUG", "Tap detected - translation/link check")
+                                                val hasLink = viewModel.checkLinkAtOffset(tapOffset, pageIndex, canvasSize)
+                                                if (hasLink) {
+                                                    viewModel.translateWordAtOffset(tapOffset, canvasSize, pageIndex, context, onNonLinkClick)
+                                                } else {
+                                                    onNonLinkClick()
+                                                }
+                                            }
+                                            ReaderTool.HIGHLIGHT -> {
+                                                val idx = findWordUnderTouch(tapOffset, containerSize, wordBlocks)
+                                                if (idx != -1) {
+                                                    val rect = wordBlocks[idx].boundingBox
+                                                    if (rect != null) {
+                                                        val scaleX = containerSize.width.toFloat() / 1080f
+                                                        val aspectVal = bitmap.width.toFloat() / bitmap.height.toFloat()
+                                                        val originalHeightVal = 1080f / aspectVal
+                                                        val scaleY = containerSize.height.toFloat() / originalHeightVal
+                                                        viewModel.addAnnotation(
+                                                            PdfAnnotation(
+                                                                pdfId = viewModel.pdfId,
+                                                                page = pageIndex,
+                                                                type = AnnotationType.HIGHLIGHT,
+                                                                content = wordBlocks[idx].text,
+                                                                x = rect.left * scaleX,
+                                                                y = rect.top * scaleY,
+                                                                width = (rect.right - rect.left) * scaleX,
+                                                                height = (rect.bottom - rect.top) * scaleY,
+                                                                colorHex = "#fbbf24"
+                                                            )
+                                                        )
+                                                    }
+                                                } else {
+                                                    viewModel.addAnnotation(
+                                                        PdfAnnotation(
+                                                            pdfId = viewModel.pdfId,
+                                                            page = pageIndex,
+                                                            type = AnnotationType.HIGHLIGHT,
+                                                            x = tapOffset.x - 70f,
+                                                            y = tapOffset.y - 14f,
+                                                            width = 140f,
+                                                            height = 28f,
+                                                            colorHex = "#fbbf24"
+                                                        )
+                                                    )
+                                                }
+                                            }
+                                            ReaderTool.NOTE -> {
+                                                if (annotationSubTool == "sticky") {
+                                                    onAddStickyNote(pageIndex, tapOffset)
+                                                } else {
+                                                    onAddText(pageIndex, tapOffset)
+                                                }
+                                            }
+                                            else -> {
+                                                onShowToolbar()
+                                            }
+                                        }
                                     }
-                                },
-                                onDragEnd = {
-                                    viewModel.showSelectionMenuAt(Offset(containerSize.width / 2f, 40f))
-                                },
-                                onDragCancel = {
-                                    viewModel.clearSelection()
                                 }
                             )
                         }
@@ -2504,74 +2611,7 @@ fun PdfPageRenderItem(
                     Image(
                         bitmap = bitmap.asImageBitmap(),
                         contentDescription = "قراءة صفحة ${pageIndex + 1}",
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .pointerInput(currentTool, annotationSubTool, selectionStartPageIndex) {
-                                detectTapGestures(
-                                    onDoubleTap = { tapOffset ->
-                                        onDoubleTapZoom(tapOffset, containerSize)
-                                    },
-                                    onLongPress = { tapOffset ->
-                                        android.util.Log.d("READER_DEBUG", "LongPress detected at offset=$tapOffset")
-                                        val word = viewModel.findWordAtOffset(
-                                            tapOffset,
-                                            pageIndex,
-                                            Size(containerSize.width.toFloat(), containerSize.height.toFloat())
-                                        ) ?: "تحديد" // Fallback: show selection toolbar anyway without word detection
-                                        
-                                        selectedWord = word
-                                        selectionOffset = tapOffset
-                                        showSelectionToolbar = true
-                                        viewModel.clearSelection()
-                                        android.util.Log.d("READER_DEBUG", "Showing toolbar for: $selectedWord")
-                                    },
-                                    onTap = { tapOffset ->
-                                        showSelectionToolbar = false
-                                        selectedWord = ""
-                                        if (selectionStartPageIndex != null) {
-                                            viewModel.clearSelection()
-                                        } else {
-                                            when (currentTool) {
-                                                ReaderTool.NONE, ReaderTool.TRANSLATE -> {
-                                                    val canvasSize = Size(containerSize.width.toFloat(), containerSize.height.toFloat())
-                                                    android.util.Log.d("READER_DEBUG", "Tap detected - translation/link check")
-                                                    val hasLink = viewModel.checkLinkAtOffset(tapOffset, pageIndex, canvasSize)
-                                                    if (hasLink) {
-                                                        viewModel.translateWordAtOffset(tapOffset, canvasSize, pageIndex, context, onNonLinkClick)
-                                                    } else {
-                                                        onNonLinkClick()
-                                                        // cleared
-                                                    }
-                                                }
-                                                ReaderTool.HIGHLIGHT -> {
-                                                    viewModel.addAnnotation(
-                                                        PdfAnnotation(
-                                                            pdfId = viewModel.pdfId,
-                                                            page = pageIndex,
-                                                            type = AnnotationType.HIGHLIGHT,
-                                                            x = tapOffset.x - 70f,
-                                                            y = tapOffset.y - 14f,
-                                                            width = 140f,
-                                                            height = 28f,
-                                                            colorHex = "#fbbf24"
-                                                        )
-                                                    )
-                                                }
-                                                ReaderTool.NOTE -> {
-                                                    if (annotationSubTool == "sticky") {
-                                                        onAddStickyNote(pageIndex, tapOffset)
-                                                    } else {
-                                                        onAddText(pageIndex, tapOffset)
-                                                    }
-                                                }
-                                                else -> {
-                                                    onShowToolbar()
-                                                }
-                                            }
-                                        }
-                                    }
-                                )
-                            },
+                        modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Fit
                     )
 
@@ -2636,52 +2676,46 @@ fun PdfPageRenderItem(
                             }
 
                         // 1B. Draw Real Time Text Selection
-                        if (selectionStartPageIndex == pageIndex && selectionStartWordIdx != -1 && selectionEndWordIdx != -1) {
+                        if (selectionStartPageIndex == pageIndex && selectionStartWordIdx != -1 && selectionEndWordIdx != -1 && pageWordsData != null && pageWords.isNotEmpty()) {
                             val range = if (selectionStartWordIdx <= selectionEndWordIdx) selectionStartWordIdx..selectionEndWordIdx else selectionEndWordIdx..selectionStartWordIdx
-                            val validRange = range.first.coerceIn(wordBlocks.indices)..range.last.coerceIn(wordBlocks.indices)
-                            val scaleX = size.width / 1080f
-                            val originalHeight = 1080f / aspect
-                            val scaleY = size.height / originalHeight
+                            val validRange = range.first.coerceIn(pageWords.indices)..range.last.coerceIn(pageWords.indices)
+                            val scaleX = size.width / pageWordsData.pageWidth
+                            val scaleY = size.height / pageWordsData.pageHeight
 
-                            wordBlocks.slice(validRange).forEach { block ->
-                                val rect = block.boundingBox
-                                if (rect != null) {
-                                    drawRect(
-                                        color = Color(0x660288D1),
-                                        topLeft = Offset(rect.left * scaleX, rect.top * scaleY),
-                                        size = Size((rect.right - rect.left) * scaleX, (rect.bottom - rect.top) * scaleY)
-                                    )
-                                }
+                            pageWords.slice(validRange).forEach { word ->
+                                drawRect(
+                                    color = Color(0x660288D1),
+                                    topLeft = Offset(word.rect.left * scaleX, word.rect.top * scaleY),
+                                    size = Size((word.rect.right - word.rect.left) * scaleX, (word.rect.bottom - word.rect.top) * scaleY)
+                                )
                             }
 
-                            val startWord = wordBlocks.getOrNull(selectionStartWordIdx)
-                            val endWord = wordBlocks.getOrNull(selectionEndWordIdx)
-                            val startRect = startWord?.boundingBox
-                            val endRect = endWord?.boundingBox
+                            val startWord = pageWords.getOrNull(selectionStartWordIdx)
+                            val endWord = pageWords.getOrNull(selectionEndWordIdx)
 
-                            if (startRect != null) {
+                            if (startWord != null) {
                                 drawCircle(
                                     color = Color(0xFF0288D1),
                                     radius = 16f,
-                                    center = Offset(startRect.left * scaleX, startRect.bottom * scaleY + 12f)
+                                    center = Offset(startWord.rect.left * scaleX, startWord.rect.bottom * scaleY + 12f)
                                 )
                                 drawLine(
                                     color = Color(0xFF0288D1),
-                                    start = Offset(startRect.left * scaleX, startRect.top * scaleY),
-                                    end = Offset(startRect.left * scaleX, startRect.bottom * scaleY + 12f),
+                                    start = Offset(startWord.rect.left * scaleX, startWord.rect.top * scaleY),
+                                    end = Offset(startWord.rect.left * scaleX, startWord.rect.bottom * scaleY + 12f),
                                     strokeWidth = 3f
                                 )
                             }
-                            if (endRect != null) {
+                            if (endWord != null) {
                                 drawCircle(
                                     color = Color(0xFF0288D1),
                                     radius = 16f,
-                                    center = Offset(endRect.right * scaleX, endRect.bottom * scaleY + 12f)
+                                    center = Offset(endWord.rect.right * scaleX, endWord.rect.bottom * scaleY + 12f)
                                 )
                                 drawLine(
                                     color = Color(0xFF0288D1),
-                                    start = Offset(endRect.right * scaleX, endRect.top * scaleY),
-                                    end = Offset(endRect.right * scaleX, endRect.bottom * scaleY + 12f),
+                                    start = Offset(endWord.rect.right * scaleX, endWord.rect.top * scaleY),
+                                    end = Offset(endWord.rect.right * scaleX, endWord.rect.bottom * scaleY + 12f),
                                     strokeWidth = 3f
                                 )
                             }
@@ -2800,66 +2834,8 @@ fun PdfPageRenderItem(
                             }
                         }
 
-                    // Word-Level Selection Highlight Overlay via Long Press
-                    if (showSelectionToolbar && selectedWord.isNotEmpty()) {
-                        Canvas(Modifier.fillMaxSize()) {
-                            drawRect(
-                                color = Color(0x662196F3),
-                                topLeft = Offset(maxOf(0f, selectionOffset.x - 45f), maxOf(0f, selectionOffset.y - 15f)),
-                                size = Size(selectedWord.length * 12f + 16f, 30f)
-                            )
-                        }
-
-                        SelectionFloatingToolbar(
-                            offset = selectionOffset,
-                            selectedText = selectedWord,
-                            onCopy = {
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                                val clip = android.content.ClipData.newPlainText("Copied Text", selectedWord)
-                                clipboard.setPrimaryClip(clip)
-                                android.widget.Toast.makeText(context, "تم نسخ الكلمة بنجاح", android.widget.Toast.LENGTH_SHORT).show()
-                                showSelectionToolbar = false
-                            },
-                            onTranslate = {
-                                viewModel.translateText(selectedWord)
-                                showSelectionToolbar = false
-                            },
-                            onHighlight = {
-                                viewModel.addAnnotation(
-                                    PdfAnnotation(
-                                        pdfId = viewModel.pdfId,
-                                        page = pageIndex,
-                                        type = AnnotationType.HIGHLIGHT,
-                                        content = selectedWord,
-                                        x = selectionOffset.x - 45f,
-                                        y = selectionOffset.y - 15f,
-                                        width = selectedWord.length * 12f + 16f,
-                                        height = 30f,
-                                        colorHex = "#fbbf24"
-                                    )
-                                )
-                                showSelectionToolbar = false
-                            },
-                            onSpeak = {
-                                viewModel.speak(selectedWord, context)
-                                showSelectionToolbar = false
-                            },
-                            onDwds = {
-                                onDwdsClick(selectedWord)
-                                showSelectionToolbar = false
-                            },
-                            onSaveVocab = {
-                                viewModel.saveToVocabularyFromSelection(context, selectedWord)
-                                showSelectionToolbar = false
-                            },
-                            onDismiss = {
-                                showSelectionToolbar = false
-                            }
-                        )
-                    }
-
-                    // Render Floating toolbar above selection
-                    if (selectionStartPageIndex == pageIndex && selectionStartWordIdx != -1 && selectionEndWordIdx != -1 && showSelectionMenu) {
+                    // Render Floating toolbar above selection (Unified Selection Menu)
+                    if (selectionStartPageIndex == pageIndex && selectionStartWordIdx != -1 && selectionEndWordIdx != -1 && showSelectionMenu && wordBlocks.isNotEmpty()) {
                         val range = if (selectionStartWordIdx <= selectionEndWordIdx) selectionStartWordIdx..selectionEndWordIdx else selectionEndWordIdx..selectionStartWordIdx
                         val validRange = range.first.coerceIn(wordBlocks.indices)..range.last.coerceIn(wordBlocks.indices)
                         val selectedBlocks = wordBlocks.slice(validRange)
@@ -2875,23 +2851,14 @@ fun PdfPageRenderItem(
                             val maxRight = selectedBlocks.maxOf { (it.boundingBox?.right ?: 0) * scaleX }
                             val centerSelectionX = (minLeft + maxRight) / 2f
 
-                            val toolbarWidthPx = with(density) { 310.dp.toPx() }
-                            val toolbarX = (centerSelectionX - toolbarWidthPx / 2f).coerceIn(10f, containerSize.width.toFloat() - toolbarWidthPx - 10f)
-                            // 52dp above selection top edge
-                            val toolbarY = (minTop - with(density) { 52.dp.toPx() }).coerceAtLeast(10f)
-
-                            val xDp = with(density) { toolbarX.toDp() }
-                            val yDp = with(density) { toolbarY.toDp() }
-
-                            SelectionToolbar(
-                                modifier = Modifier
-                                    .offset(x = xDp, y = yDp)
-                                    .width(310.dp),
+                            SelectionFloatingToolbar(
+                                offset = Offset(centerSelectionX, minTop),
+                                selectedText = selectedText,
                                 onCopy = {
                                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                                     val clip = android.content.ClipData.newPlainText("Copied Text", selectedText)
                                     clipboard.setPrimaryClip(clip)
-                                    android.widget.Toast.makeText(context, "تم كبس النص بنجاح", android.widget.Toast.LENGTH_SHORT).show()
+                                    android.widget.Toast.makeText(context, "تم نسخ النص بنجاح", android.widget.Toast.LENGTH_SHORT).show()
                                     viewModel.clearSelection()
                                 },
                                 onTranslate = {
@@ -2914,12 +2881,19 @@ fun PdfPageRenderItem(
                                     )
                                     viewModel.clearSelection()
                                 },
+                                onSpeak = {
+                                    viewModel.speak(selectedText, context)
+                                    viewModel.clearSelection()
+                                },
                                 onDwds = {
                                     onDwdsClick(selectedText)
                                     viewModel.clearSelection()
                                 },
-                                onSaveVocabulary = {
+                                onSaveVocab = {
                                     viewModel.saveToVocabularyFromSelection(context, selectedText)
+                                    viewModel.clearSelection()
+                                },
+                                onDismiss = {
                                     viewModel.clearSelection()
                                 }
                             )
@@ -3210,37 +3184,77 @@ fun SelectionFloatingToolbar(
     onDismiss: () -> Unit
 ) {
     val density = LocalDensity.current
-    val xDp = with(density) { offset.x.toDp() }
-    val yDp = with(density) { offset.y.toDp() }
+    
+    // Position toolbar above the word, centered horizontally on it
+    val toolbarX = with(density) { 
+        maxOf(8.dp.toPx(), minOf(offset.x - 140f, 400f))
+    }
+    val toolbarY = with(density) { 
+        maxOf(8.dp.toPx(), offset.y - 80f) // 80px above the word
+    }
 
     Box(
-        modifier = Modifier
-            .offset(x = maxOf(0.dp, xDp - 150.dp), y = maxOf(0.dp, yDp - 65.dp))
-            .zIndex(50f)
-            .pointerInput(Unit) {
-                detectTapGestures { /* consume taps inside to avoid dismissing */ }
-            }
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.TopStart
     ) {
+        // Dismiss background (invisible)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clickable(
+                    indication = null,
+                    interactionSource = remember { MutableInteractionSource() }
+                ) { onDismiss() }
+        )
+
+        // Toolbar card — COMPACT, not full width
         Card(
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E2E)),
-            elevation = CardDefaults.cardElevation(defaultElevation = 10.dp),
-            shape = RoundedCornerShape(8.dp),
-            border = BorderStroke(1.dp, Gold)
+            modifier = Modifier
+                .wrapContentSize()  // ← KEY: wraps content only
+                .offset(
+                    x = with(density) { toolbarX.toDp() },
+                    y = with(density) { toolbarY.toDp() }
+                )
+                .zIndex(100f),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A2E)),
+            elevation = CardDefaults.cardElevation(12.dp),
+            shape = RoundedCornerShape(10.dp),
+            border = BorderStroke(1.dp, Color(0xFF2196F3).copy(alpha = 0.4f))
         ) {
             Row(
                 modifier = Modifier
-                    .padding(horizontal = 6.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .wrapContentWidth()  // ← wraps content
+                    .padding(horizontal = 4.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(0.dp)
             ) {
-                ToolbarAction("نسخ", Icons.Default.ContentCopy, onCopy)
-                ToolbarAction("ترجمة", Icons.Default.Translate, onTranslate)
-                ToolbarAction("تمييز", Icons.Default.BorderColor, onHighlight)
-                ToolbarAction("نطق", Icons.Default.VolumeUp, onSpeak)
-                ToolbarAction("DWDS", Icons.Default.Book, onDwds)
-                ToolbarAction("حفظ", Icons.Default.Bookmark, onSaveVocab)
+                CompactToolbarBtn("نسخ", "📋", onCopy)
+                CompactToolbarBtn("ترجمة", "🔄", onTranslate)
+                CompactToolbarBtn("تمييز", "🖊️", onHighlight)
+                CompactToolbarBtn("نطق", "🔊", onSpeak)
+                CompactToolbarBtn("DWDS", "📖", onDwds)
+                CompactToolbarBtn("حفظ", "⭐", onSaveVocab)
             }
         }
+    }
+}
+
+@Composable
+fun CompactToolbarBtn(label: String, emoji: String, onClick: () -> Unit) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .clickable(onClick = onClick)
+            .padding(horizontal = 7.dp, vertical = 4.dp)
+            .width(44.dp)  // fixed small width per button
+    ) {
+        Text(emoji, fontSize = 16.sp)
+        Text(
+            label, 
+            color = Color.White, 
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1
+        )
     }
 }
 

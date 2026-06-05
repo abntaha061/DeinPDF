@@ -16,6 +16,8 @@ import com.example.data.repository.PdfRepository
 import com.example.ui.reader.ReaderTool
 import com.example.ui.reader.TranslationResult
 import com.example.ui.reader.ViewMode
+import com.example.ui.reader.WordPosition
+import com.example.ui.reader.TextSelection
 import com.example.utils.AIManager
 import com.example.utils.OcrManager
 import com.example.utils.TranslationManager
@@ -29,6 +31,16 @@ import kotlinx.coroutines.Dispatchers
 import java.util.Locale
 import com.example.utils.OcrBlock
 import com.example.utils.OcrResult
+import android.graphics.RectF
+import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.text.PDFTextStripper
+import com.tom_roush.pdfbox.text.TextPosition
+
+data class PageWordsData(
+    val pageWidth: Float,
+    val pageHeight: Float,
+    val words: List<WordPosition>
+)
 
 data class SearchMatch(
     val pageIndex: Int,
@@ -49,6 +61,9 @@ class ReaderViewModel(
 ) : ViewModel() {
 
     // ===== PDF state =====
+    private val _pageWordsMap = MutableStateFlow<Map<Int, PageWordsData>>(emptyMap())
+    val pageWordsMap: StateFlow<Map<Int, PageWordsData>> = _pageWordsMap.asStateFlow()
+
     private val _pageCount = MutableStateFlow(0)
     val pageCount: StateFlow<Int> = _pageCount.asStateFlow()
 
@@ -712,13 +727,22 @@ class ReaderViewModel(
         val end = _selectionEndWordIndex.value
         if (start == -1 || end == -1) return
 
-        viewModelScope.launch {
-            val pageText = repository.getPageOcrText(pdfId, page) ?: return@launch
-            val blocks = deserializeBlocks(pageText.wordCoordinatesJson)
+        val data = _pageWordsMap.value[page]
+        if (data != null) {
+            val words = data.words
             val range = if (start <= end) start..end else end..start
-            val validRange = range.first.coerceIn(blocks.indices)..range.last.coerceIn(blocks.indices)
-            val words = blocks.slice(validRange).map { it.text }
-            _selectedText.value = words.joinToString(" ")
+            val validRange = range.first.coerceIn(words.indices)..range.last.coerceIn(words.indices)
+            val selectedWords = words.slice(validRange).map { it.word }
+            _selectedText.value = selectedWords.joinToString(" ")
+        } else {
+            viewModelScope.launch {
+                val pageText = repository.getPageOcrText(pdfId, page) ?: return@launch
+                val blocks = deserializeBlocks(pageText.wordCoordinatesJson)
+                val range = if (start <= end) start..end else end..start
+                val validRange = range.first.coerceIn(blocks.indices)..range.last.coerceIn(blocks.indices)
+                val words = blocks.slice(validRange).map { it.text }
+                _selectedText.value = words.joinToString(" ")
+            }
         }
     }
 
@@ -1155,51 +1179,167 @@ class ReaderViewModel(
         }
     }
 
-    fun findWordAtOffset(offset: Offset, pageIndex: Int, canvasSize: androidx.compose.ui.geometry.Size? = null): String? {
-        val pageText = kotlinx.coroutines.runBlocking {
-            repository.getPageOcrText(pdfId, pageIndex)
-        } ?: return null
-        val blocks = deserializeBlocks(pageText.wordCoordinatesJson)
-        if (blocks.isEmpty()) {
-            android.util.Log.d("SELECTION_DEBUG", "Page words count: 0")
-            return null
+    fun loadPageWords(uri: Uri, pageIndex: Int, context: Context) {
+        if (_pageWordsMap.value.containsKey(pageIndex)) {
+            android.util.Log.d("WORDS_DEBUG", "Words for page $pageIndex already loaded.")
+            return
         }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                // Initialize PDFBox
+                try {
+                    val clazz = Class.forName("com.tom_roush.pdfbox.util.PDFBox")
+                    clazz.getMethod("init", android.content.Context::class.java).invoke(null, context)
+                } catch (_: Exception) {
+                    try {
+                        val clazz = Class.forName("com.tom_roush.pdfbox.android.PDFBox")
+                        clazz.getMethod("init", android.content.Context::class.java).invoke(null, context)
+                    } catch (_: Exception) {}
+                }
 
-        val scaleX = if (canvasSize != null && canvasSize.width > 0) 1080f / canvasSize.width else 1f
-        val scaleY = if (canvasSize != null && canvasSize.height > 0) {
-            val aspect = canvasSize.width / canvasSize.height
-            val originalHeight = 1080f / aspect
-            originalHeight / canvasSize.height
-        } else 1f
+                val inputStream = context.contentResolver.openInputStream(uri) ?: return@launch
+                val document = com.tom_roush.pdfbox.pdmodel.PDDocument.load(inputStream)
+                
+                val pageWords = mutableListOf<WordPosition>()
+                val page = document.getPage(pageIndex)
+                val pageHeight = page.mediaBox.height
+                val pageWidth = page.mediaBox.width
+                
+                val stripper = object : com.tom_roush.pdfbox.text.PDFTextStripper() {
+                    override fun writeString(text: String, textPositions: List<com.tom_roush.pdfbox.text.TextPosition>) {
+                        var wordBuilder = StringBuilder()
+                        var startX = 0f
+                        var startY = 0f
+                        var endX = 0f
+                        var endY = 0f
 
-        val tx = offset.x * scaleX
-        val ty = offset.y * scaleY
+                        textPositions.forEach { tp ->
+                            val char = tp.unicode ?: return@forEach
+                            if (char.isBlank()) {
+                                if (wordBuilder.isNotEmpty()) {
+                                    val flippedTop = pageHeight - endY
+                                    val flippedBottom = pageHeight - startY
+                                    pageWords.add(
+                                        WordPosition(
+                                            word = wordBuilder.toString(),
+                                            rect = android.graphics.RectF(startX, flippedTop, endX, flippedBottom),
+                                            pageIndex = pageIndex
+                                        )
+                                    )
+                                    wordBuilder.clear()
+                                }
+                            } else {
+                                if (wordBuilder.isEmpty()) {
+                                    startX = tp.x
+                                    startY = tp.y
+                                }
+                                wordBuilder.append(char)
+                                endX = tp.x + tp.width
+                                endY = tp.y + tp.height
+                            }
+                        }
+                        if (wordBuilder.isNotEmpty()) {
+                            val flippedTop = pageHeight - endY
+                            val flippedBottom = pageHeight - startY
+                            pageWords.add(
+                                WordPosition(
+                                    word = wordBuilder.toString(),
+                                    rect = android.graphics.RectF(startX, flippedTop, endX, flippedBottom),
+                                    pageIndex = pageIndex
+                                )
+                            )
+                        }
+                    }
+                }
+                stripper.startPage = pageIndex + 1
+                stripper.endPage = pageIndex + 1
+                stripper.getText(document)
+                document.close()
+                inputStream.close()
 
-        android.util.Log.d("SELECTION_DEBUG", "Long press at: $offset")
-        
-        var bestWord: String? = null
-        var minDistance = Float.MAX_VALUE
+                val updatedMap = _pageWordsMap.value.toMutableMap()
+                updatedMap[pageIndex] = PageWordsData(pageWidth, pageHeight, pageWords)
+                _pageWordsMap.value = updatedMap
 
-        for (block in blocks) {
-            val rect = block.boundingBox ?: continue
-            if (tx >= rect.left && tx <= rect.right && ty >= rect.top && ty <= rect.bottom) {
-                android.util.Log.d("SELECTION_DEBUG", "Found word: ${block.text}")
-                android.util.Log.d("SELECTION_DEBUG", "Page words count: ${blocks.size}")
-                return block.text
+                android.util.Log.d("WORDS_DEBUG", "Extracted ${pageWords.size} words from page $pageIndex. Dimensions: $pageWidth x $pageHeight")
+                pageWords.take(5).forEach { 
+                    android.util.Log.d("WORDS_DEBUG", "  Word: '${it.word}' at rect: ${it.rect}")
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("WORDS_DEBUG", "Extraction failed: ${e.message}", e)
             }
-            val cx = (rect.left + rect.right) / 2f
-            val cy = (rect.top + rect.bottom) / 2f
-            val dist = (cx - tx) * (cx - tx) + (cy - ty) * (cy - ty)
+        }
+    }
+
+    fun findWordAtOffset(
+        offset: Offset,
+        pageIndex: Int,
+        containerWidth: Float,
+        containerHeight: Float
+    ): String? {
+        val data = _pageWordsMap.value[pageIndex] ?: return null
+        if (data.words.isEmpty() || data.pageWidth <= 0f || data.pageHeight <= 0f) return null
+
+        val scaleX = containerWidth / data.pageWidth
+        val scaleY = containerHeight / data.pageHeight
+
+        val tapX = offset.x
+        val tapY = offset.y
+
+        val found = data.words.firstOrNull { word ->
+            val left = word.rect.left * scaleX
+            val right = word.rect.right * scaleX
+            val top = word.rect.top * scaleY
+            val bottom = word.rect.bottom * scaleY
+            tapX >= left && tapX <= right && tapY >= top && tapY <= bottom
+        }
+        return found?.word
+    }
+
+    fun findWordIndexAtOffset(
+        offset: Offset,
+        pageIndex: Int,
+        containerWidth: Float,
+        containerHeight: Float
+    ): Int? {
+        val data = _pageWordsMap.value[pageIndex] ?: return null
+        if (data.words.isEmpty() || data.pageWidth <= 0f || data.pageHeight <= 0f) return null
+
+        val scaleX = containerWidth / data.pageWidth
+        val scaleY = containerHeight / data.pageHeight
+
+        val tapX = offset.x
+        val tapY = offset.y
+
+        // 1. Precise overlap check
+        val exactIndex = data.words.indexOfFirst { word ->
+            val left = word.rect.left * scaleX
+            val right = word.rect.right * scaleX
+            val top = word.rect.top * scaleY
+            val bottom = word.rect.bottom * scaleY
+            tapX >= left && tapX <= right && tapY >= top && tapY <= bottom
+        }
+        if (exactIndex != -1) return exactIndex
+
+        // 2. Minimum distance check
+        var bestIndex = -1
+        var minDistance = Float.MAX_VALUE
+        for (i in data.words.indices) {
+            val word = data.words[i]
+            val cx = ((word.rect.left + word.rect.right) / 2f) * scaleX
+            val cy = ((word.rect.top + word.rect.bottom) / 2f) * scaleY
+            val dist = (cx - tapX) * (cx - tapX) + (cy - tapY) * (cy - tapY)
             if (dist < minDistance) {
                 minDistance = dist
-                bestWord = block.text
+                bestIndex = i
             }
         }
+        return if (minDistance < 25000f) bestIndex else null
+    }
 
-        val finalWord = if (minDistance < 35000) bestWord else null
-        android.util.Log.d("SELECTION_DEBUG", "Found word: $finalWord")
-        android.util.Log.d("SELECTION_DEBUG", "Page words count: ${blocks.size}")
-        return finalWord
+    fun findWordAtOffset(offset: Offset, pageIndex: Int, canvasSize: androidx.compose.ui.geometry.Size? = null): String? {
+        if (canvasSize == null || canvasSize.width <= 0f || canvasSize.height <= 0f) return null
+        return findWordAtOffset(offset, pageIndex, canvasSize.width, canvasSize.height)
     }
 
     override fun onCleared() {
