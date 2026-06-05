@@ -1133,6 +1133,53 @@ class ReaderViewModel(
         }
     }
 
+    fun findWordAtOffset(offset: Offset, pageIndex: Int, canvasSize: androidx.compose.ui.geometry.Size? = null): String? {
+        val pageText = kotlinx.coroutines.runBlocking {
+            repository.getPageOcrText(pdfId, pageIndex)
+        } ?: return null
+        val blocks = deserializeBlocks(pageText.wordCoordinatesJson)
+        if (blocks.isEmpty()) {
+            android.util.Log.d("SELECTION_DEBUG", "Page words count: 0")
+            return null
+        }
+
+        val scaleX = if (canvasSize != null && canvasSize.width > 0) 1080f / canvasSize.width else 1f
+        val scaleY = if (canvasSize != null && canvasSize.height > 0) {
+            val aspect = canvasSize.width / canvasSize.height
+            val originalHeight = 1080f / aspect
+            originalHeight / canvasSize.height
+        } else 1f
+
+        val tx = offset.x * scaleX
+        val ty = offset.y * scaleY
+
+        android.util.Log.d("SELECTION_DEBUG", "Long press at: $offset")
+        
+        var bestWord: String? = null
+        var minDistance = Float.MAX_VALUE
+
+        for (block in blocks) {
+            val rect = block.boundingBox ?: continue
+            if (tx >= rect.left && tx <= rect.right && ty >= rect.top && ty <= rect.bottom) {
+                android.util.Log.d("SELECTION_DEBUG", "Found word: ${block.text}")
+                android.util.Log.d("SELECTION_DEBUG", "Page words count: ${blocks.size}")
+                return block.text
+            }
+            val cx = (rect.left + rect.right) / 2f
+            val cy = (rect.top + rect.bottom) / 2f
+            val dist = (cx - tx) * (cx - tx) + (cy - ty) * (cy - ty)
+            if (dist < minDistance) {
+                minDistance = dist
+                bestWord = block.text
+            }
+        }
+
+        val finalWord = if (minDistance < 35000) bestWord else null
+        android.util.Log.d("SELECTION_DEBUG", "Found word: $finalWord")
+        android.util.Log.d("SELECTION_DEBUG", "Page words count: ${blocks.size}")
+        return finalWord
+    }
+
     override fun onCleared() {
         super.onCleared()
         tts?.stop()

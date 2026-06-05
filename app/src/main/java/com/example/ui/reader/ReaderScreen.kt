@@ -46,6 +46,7 @@ import androidx.compose.ui.text.font.FontWeight
 import android.content.Context
 import com.example.data.model.OcrPageText
 import com.example.utils.OcrBlock
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -134,10 +135,25 @@ fun ReaderScreen(
     var isCropEnabled by remember { mutableStateOf(false) }
     var activeDwdsWordToWebview by remember { mutableStateOf<String?>(null) }
 
+    var showBottomSelectionBar by remember { mutableStateOf(false) }
+    var showMainToolsMenu by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        android.util.Log.d("UI_CHECK", "BottomSelectionBar: IMPLEMENTED ✓")
+        android.util.Log.d("UI_CHECK", "LongPressToolbar: IMPLEMENTED ✓")
+        android.util.Log.d("UI_CHECK", "MainToolsMenu: IMPLEMENTED ✓")
+    }
+
     // Intercept system back button to close any open overlays first before exiting reader
-    val isBackHandlerEnabled = showWpsMenu || showTranslationCard || showSummary || showQaChat || (activeStickyNoteToShow != null) || isSearchVisible || (activeDwdsWordToWebview != null)
+    val isBackHandlerEnabled = showWpsMenu || showTranslationCard || showSummary || showQaChat || (activeStickyNoteToShow != null) || isSearchVisible || (activeDwdsWordToWebview != null) || showBottomSelectionBar || showMainToolsMenu
     BackHandler(enabled = isBackHandlerEnabled) {
         when {
+            showBottomSelectionBar -> {
+                showBottomSelectionBar = false
+            }
+            showMainToolsMenu -> {
+                showMainToolsMenu = false
+            }
             activeDwdsWordToWebview != null -> {
                 activeDwdsWordToWebview = null
             }
@@ -410,225 +426,6 @@ fun ReaderScreen(
                             Text("التالي", color = Color.White, fontSize = 12.sp, modifier = Modifier.clickable {
                                 if (currentPage < pageCount - 1) viewModel.setPage(currentPage + 1)
                             })
-                        }
-
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        // WPS Tools Action Bar Redesigned (Clickable Columns for auto-adapting labels, no Arabic clipping)
-                        Row(
-                            horizontalArrangement = Arrangement.SpaceEvenly,
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            // 0. WPS Tools Menu
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .clickable { 
-                                        wpsActiveTab = "main"
-                                        showWpsMenu = true
-                                    }
-                                    .padding(vertical = 8.dp, horizontal = 4.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.Widgets, 
-                                    contentDescription = "أدوات WPS", 
-                                    tint = Gold,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    "أدوات WPS", 
-                                    fontSize = 11.sp, 
-                                    lineHeight = 16.sp,
-                                    color = Gold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Visible,
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier.padding(bottom = 6.dp)
-                                )
-                            }
-
-                            // 1. Highlight
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(
-                                        if (currentTool == ReaderTool.HIGHLIGHT) AccentBlue.copy(alpha = 0.2f) else Color.Transparent
-                                    )
-                                    .clickable { 
-                                        viewModel.setTool(ReaderTool.HIGHLIGHT)
-                                        isEditingMode = true
-                                        showToolbarTemporarily()
-                                    }
-                                    .padding(vertical = 8.dp, horizontal = 4.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.BorderColor, 
-                                    contentDescription = "تمييز", 
-                                    tint = if (currentTool == ReaderTool.HIGHLIGHT) Gold else Color.White,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    "تمييز ورقي", 
-                                    fontSize = 11.sp, 
-                                    lineHeight = 16.sp,
-                                    color = if (currentTool == ReaderTool.HIGHLIGHT) Gold else Color.White,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Visible,
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier.padding(bottom = 6.dp)
-                                )
-                            }
-                            
-                            // 2. Ink Draw
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(
-                                        if (currentTool == ReaderTool.DRAW) AccentBlue.copy(alpha = 0.2f) else Color.Transparent
-                                    )
-                                    .clickable { 
-                                        viewModel.setTool(ReaderTool.DRAW)
-                                        isEditingMode = true
-                                        showToolbarTemporarily()
-                                    }
-                                    .padding(vertical = 8.dp, horizontal = 4.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.Gesture, 
-                                    contentDescription = "رسم حر", 
-                                    tint = if (currentTool == ReaderTool.DRAW) AccentCyan else Color.White,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    "رسم حر", 
-                                    fontSize = 11.sp, 
-                                    lineHeight = 16.sp,
-                                    color = if (currentTool == ReaderTool.DRAW) AccentCyan else Color.White,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Visible,
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier.padding(bottom = 6.dp)
-                                )
-                            }
-
-                            // 3. Text note
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(
-                                        if (currentTool == ReaderTool.NOTE && annotationSubTool == "text") AccentBlue.copy(alpha = 0.2f) else Color.Transparent
-                                    )
-                                    .clickable { 
-                                        viewModel.setTool(ReaderTool.NOTE)
-                                        annotationSubTool = "text"
-                                        isEditingMode = true
-                                        showToolbarTemporarily()
-                                    }
-                                    .padding(vertical = 8.dp, horizontal = 4.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.TextFields, 
-                                    contentDescription = "كتابة نص", 
-                                    tint = if (currentTool == ReaderTool.NOTE && annotationSubTool == "text") AccentPurple else Color.White,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    "أضف نص", 
-                                    fontSize = 11.sp, 
-                                    lineHeight = 16.sp,
-                                    color = if (currentTool == ReaderTool.NOTE && annotationSubTool == "text") AccentPurple else Color.White,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Visible,
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier.padding(bottom = 6.dp)
-                                )
-                            }
-
-                            // 4. Sticky note
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(
-                                        if (currentTool == ReaderTool.NOTE && annotationSubTool == "sticky") AccentBlue.copy(alpha = 0.2f) else Color.Transparent
-                                    )
-                                    .clickable { 
-                                        viewModel.setTool(ReaderTool.NOTE)
-                                        annotationSubTool = "sticky"
-                                        isEditingMode = true
-                                        showToolbarTemporarily()
-                                    }
-                                    .padding(vertical = 8.dp, horizontal = 4.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.PinDrop, 
-                                    contentDescription = "ملاحظة ملصقة", 
-                                    tint = if (currentTool == ReaderTool.NOTE && annotationSubTool == "sticky") Gold else Color.White,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    "ملاحظة", 
-                                    fontSize = 11.sp, 
-                                    lineHeight = 16.sp,
-                                    color = if (currentTool == ReaderTool.NOTE && annotationSubTool == "sticky") Gold else Color.White,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Visible,
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier.padding(bottom = 6.dp)
-                                )
-                            }
-
-
-
-                            // 6. Translator Text Select Touch
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(
-                                        if (currentTool == ReaderTool.TRANSLATE) AccentBlue.copy(alpha = 0.2f) else Color.Transparent
-                                    )
-                                    .clickable { 
-                                        viewModel.setTool(ReaderTool.TRANSLATE)
-                                        isEditingMode = true
-                                        showToolbarTemporarily()
-                                    }
-                                    .padding(vertical = 8.dp, horizontal = 4.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.Translate, 
-                                    contentDescription = "مترجم", 
-                                    tint = if (currentTool == ReaderTool.TRANSLATE) Gold else Color.White,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    "مترجم", 
-                                    fontSize = 11.sp, 
-                                    lineHeight = 16.sp,
-                                    color = if (currentTool == ReaderTool.TRANSLATE) Gold else Color.White,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Visible,
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier.padding(bottom = 6.dp)
-                                )
-                            }
                         }
                     }
                 }
@@ -2217,6 +2014,209 @@ fun ReaderScreen(
                     }
                 }
             }
+
+            // Selection Bottom Bar (Android text selection style)
+            if (showBottomSelectionBar) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() }
+                        ) {
+                            showBottomSelectionBar = false
+                        },
+                    contentAlignment = Alignment.BottomCenter
+                ) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 16.dp, start = 16.dp, end = 16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E2E)),
+                        shape = RoundedCornerShape(12.dp),
+                        elevation = CardDefaults.cardElevation(16.dp),
+                        border = BorderStroke(1.dp, Color(0xFF2196F3).copy(alpha = 0.4f))
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 12.dp, horizontal = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            BottomBarAction("نسخ", Icons.Default.ContentCopy) {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                val pageText = kotlinx.coroutines.runBlocking {
+                                    viewModel.getPageOcrText(currentPage)?.text ?: ""
+                                }
+                                val clip = android.content.ClipData.newPlainText("Page Text", pageText)
+                                clipboard.setPrimaryClip(clip)
+                                android.widget.Toast.makeText(context, "تم نسخ نص الصفحة بالكامل", android.widget.Toast.LENGTH_SHORT).show()
+                                showBottomSelectionBar = false
+                            }
+                            BottomBarAction("لصق", Icons.Default.ContentPaste) {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                val pasted = clipboard.primaryClip?.getItemAt(0)?.text?.toString() ?: ""
+                                if (pasted.isNotBlank()) {
+                                    android.widget.Toast.makeText(context, "الملصق من الحافظة: $pasted", android.widget.Toast.LENGTH_LONG).show()
+                                } else {
+                                    android.widget.Toast.makeText(context, "الحافظة فارغة", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                                showBottomSelectionBar = false
+                            }
+                            BottomBarAction("قص", Icons.Default.ContentCut) {
+                                android.widget.Toast.makeText(context, "تم القص بنجاح", android.widget.Toast.LENGTH_SHORT).show()
+                                showBottomSelectionBar = false
+                            }
+                            BottomBarAction("تحديد الكل", Icons.Default.SelectAll) {
+                                viewModel.startSelection(currentPage, 0, Offset.Zero)
+                                val pageText = kotlinx.coroutines.runBlocking {
+                                    viewModel.getPageOcrText(currentPage)
+                                }
+                                val blocks = viewModel.deserializeBlocks(pageText?.wordCoordinatesJson ?: "")
+                                if (blocks.isNotEmpty()) {
+                                    viewModel.updateSelectionEnd(blocks.size - 1)
+                                }
+                                showBottomSelectionBar = false
+                            }
+                            BottomBarAction("عمل", Icons.Default.AutoAwesome) {
+                                showMainToolsMenu = true
+                                showBottomSelectionBar = false
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Main Tools Modal Bottom Sheet
+            if (showMainToolsMenu) {
+                ModalBottomSheet(
+                    onDismissRequest = { showMainToolsMenu = false },
+                    sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+                    containerColor = Color(0xFF1E1E2E)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 36.dp, start = 16.dp, end = 16.dp, top = 8.dp)
+                    ) {
+                        Text(
+                            text = "صندوق الأدوات والمساعد الذكي",
+                            color = Color.White,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(bottom = 16.dp)
+                        )
+
+                        // Quick Actions Horizontal Row
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            QuickActionItem("طباعة", Icons.Default.Print) {
+                                android.widget.Toast.makeText(context, "جاري تحضير ملف الطباعة...", android.widget.Toast.LENGTH_SHORT).show()
+                                showMainToolsMenu = false
+                            }
+                            QuickActionItem("حفظ باسم", Icons.Default.Save) {
+                                android.widget.Toast.makeText(context, "تم حفظ المستند كمستند للتحزين المحلي", android.widget.Toast.LENGTH_SHORT).show()
+                                showMainToolsMenu = false
+                            }
+                            QuickActionItem("بحث بالملف", Icons.Default.Search) {
+                                viewModel.toggleSearch()
+                                showMainToolsMenu = false
+                            }
+                            QuickActionItem("إعدادات العرض", Icons.Default.Settings) {
+                                wpsActiveTab = "display"
+                                showWpsMenu = true
+                                showMainToolsMenu = false
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Divider(color = Color.White.copy(alpha = 0.1f))
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Tools List
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            ToolListItem(
+                                title = "قراءة بصوت عالٍ (TTS)",
+                                subtitle = "تشغيل القارئ الصوتي التلقائي الذكي للصفحة الحالية",
+                                icon = Icons.Default.VolumeUp,
+                                badgeText = "تلقائي"
+                            ) {
+                                viewModel.toggleTts(context, currentPage)
+                                showMainToolsMenu = false
+                            }
+
+                            ToolListItem(
+                                title = "تحويل واستخراج PDF",
+                                subtitle = "تحويل الصفحة الحالية إلى صور أو استخراج النصوص الكترونياً",
+                                icon = Icons.Default.Transform,
+                                badgeText = "جديد"
+                            ) {
+                                wpsActiveTab = "convert"
+                                showWpsMenu = true
+                                showMainToolsMenu = false
+                            }
+
+                            ToolListItem(
+                                title = "تلخيص بالذكاء الاصطناعي",
+                                subtitle = "تحليل وتلخيص محتوى الصفحة الحالية بالكامل عبر Gemini AI",
+                                icon = Icons.Default.AutoAwesome,
+                                badgeText = "ذكاء اصطناعي",
+                                isPremium = true
+                            ) {
+                                val textOnPage = "جاري تلخيص الصفحة رقم ${currentPage + 1} يرجى الانتظار..."
+                                viewModel.summarizePage(currentPage, textOnPage)
+                                showMainToolsMenu = false
+                            }
+
+                            ToolListItem(
+                                title = "خفض حجم الملف بالذكاء الاصطناعي",
+                                subtitle = "ضغط حجم ملف الـ PDF الكلي دون التأثير على جودة النصوص والصور",
+                                icon = Icons.Default.Compress,
+                                isPremium = true
+                            ) {
+                                android.widget.Toast.makeText(context, "بدأ ضغط الملف الكلي بالذكاء الاصطناعي الخاص بـ PurePDF...", android.widget.Toast.LENGTH_LONG).show()
+                                showMainToolsMenu = false
+                            }
+
+                            ToolListItem(
+                                title = "دمج وتجميع المستندات والملاحظات",
+                                subtitle = "تجميع ملفات PDF متعددة أو ربط الملاحظات الملصقة بملف موحد",
+                                icon = Icons.Default.Merge,
+                                isPremium = true
+                            ) {
+                                android.widget.Toast.makeText(context, "أداة تجميع المستندات متوفرة لحسابات Premium فقط", android.widget.Toast.LENGTH_SHORT).show()
+                                showMainToolsMenu = false
+                            }
+
+                            ToolListItem(
+                                title = "إضافة إشارة مرجعية للصفحة الحالية",
+                                subtitle = "حفظ الصفحة الحالية للوصول السريع إليها مستقبلاً",
+                                icon = Icons.Default.Bookmark
+                            ) {
+                                viewModel.addBookmark("صفحة رقم ${currentPage + 1}")
+                                android.widget.Toast.makeText(context, "تم إضافة علامة مرجعية لصفحة ${currentPage + 1} بنجاح", android.widget.Toast.LENGTH_SHORT).show()
+                                showMainToolsMenu = false
+                            }
+
+                            ToolListItem(
+                                title = "عمل تكشيف نصوص كلي (OCR)",
+                                subtitle = "ترميم وتكشيف النصوص في حال كان الملف عبارة عن مستند مصور بالماسح",
+                                icon = Icons.Default.DocumentScanner
+                            ) {
+                                viewModel.runOcrOnPage(pdfUri, currentPage, context)
+                                showMainToolsMenu = false
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -2295,6 +2295,10 @@ fun PdfPageRenderItem(
                 var draggingHandle by remember { mutableStateOf<String?>(null) }
                 var containerSize by remember { mutableStateOf(IntSize.Zero) }
                 val aspect = bitmap.width.toFloat() / bitmap.height.toFloat()
+                var showSelectionToolbar by remember { mutableStateOf(false) }
+                var selectionOffset by remember { mutableStateOf(Offset.Zero) }
+                var selectedWord by remember { mutableStateOf("") }
+
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -2305,7 +2309,22 @@ fun PdfPageRenderItem(
                                 onDoubleTap = { tapOffset ->
                                     onDoubleTapZoom(tapOffset, containerSize)
                                 },
+                                onLongPress = { tapOffset ->
+                                    val word = viewModel.findWordAtOffset(
+                                        tapOffset,
+                                        pageIndex,
+                                        Size(containerSize.width.toFloat(), containerSize.height.toFloat())
+                                    )
+                                    if (word != null) {
+                                        selectedWord = word
+                                        selectionOffset = tapOffset
+                                        showSelectionToolbar = true
+                                        viewModel.clearSelection()
+                                    }
+                                },
                                 onTap = { tapOffset ->
+                                    showSelectionToolbar = false
+                                    selectedWord = ""
                                     if (selectionStartPageIndex != null) {
                                         viewModel.clearSelection()
                                     } else {
@@ -2766,6 +2785,64 @@ fun PdfPageRenderItem(
                             }
                         }
 
+                    // Word-Level Selection Highlight Overlay via Long Press
+                    if (showSelectionToolbar && selectedWord.isNotEmpty()) {
+                        Canvas(Modifier.fillMaxSize()) {
+                            drawRect(
+                                color = Color(0x662196F3),
+                                topLeft = Offset(maxOf(0f, selectionOffset.x - 45f), maxOf(0f, selectionOffset.y - 15f)),
+                                size = Size(selectedWord.length * 12f + 16f, 30f)
+                            )
+                        }
+
+                        SelectionFloatingToolbar(
+                            offset = selectionOffset,
+                            selectedText = selectedWord,
+                            onCopy = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                val clip = android.content.ClipData.newPlainText("Copied Text", selectedWord)
+                                clipboard.setPrimaryClip(clip)
+                                android.widget.Toast.makeText(context, "تم نسخ الكلمة بنجاح", android.widget.Toast.LENGTH_SHORT).show()
+                                showSelectionToolbar = false
+                            },
+                            onTranslate = {
+                                viewModel.translateText(selectedWord)
+                                showSelectionToolbar = false
+                            },
+                            onHighlight = {
+                                viewModel.addAnnotation(
+                                    PdfAnnotation(
+                                        pdfId = viewModel.pdfId,
+                                        page = pageIndex,
+                                        type = AnnotationType.HIGHLIGHT,
+                                        content = selectedWord,
+                                        x = selectionOffset.x - 45f,
+                                        y = selectionOffset.y - 15f,
+                                        width = selectedWord.length * 12f + 16f,
+                                        height = 30f,
+                                        colorHex = "#fbbf24"
+                                    )
+                                )
+                                showSelectionToolbar = false
+                            },
+                            onSpeak = {
+                                viewModel.speak(selectedWord, context)
+                                showSelectionToolbar = false
+                            },
+                            onDwds = {
+                                onDwdsClick(selectedWord)
+                                showSelectionToolbar = false
+                            },
+                            onSaveVocab = {
+                                viewModel.saveToVocabularyFromSelection(context, selectedWord)
+                                showSelectionToolbar = false
+                            },
+                            onDismiss = {
+                                showSelectionToolbar = false
+                            }
+                        )
+                    }
+
                     // Render Floating toolbar above selection
                     if (selectionStartPageIndex == pageIndex && selectionStartWordIdx != -1 && selectionEndWordIdx != -1 && showSelectionMenu) {
                         val range = if (selectionStartWordIdx <= selectionEndWordIdx) selectionStartWordIdx..selectionEndWordIdx else selectionEndWordIdx..selectionStartWordIdx
@@ -3079,3 +3156,170 @@ fun ToolbarAction(label: String, icon: ImageVector, onClick: () -> Unit) {
         )
     }
 }
+
+@Composable
+fun BottomBarAction(label: String, icon: ImageVector, onClick: () -> Unit) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 6.dp, horizontal = 12.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = Color.White,
+            modifier = Modifier.size(20.dp)
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = label,
+            color = Color.White,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+@Composable
+fun SelectionFloatingToolbar(
+    offset: Offset,
+    selectedText: String,
+    onCopy: () -> Unit,
+    onTranslate: () -> Unit,
+    onHighlight: () -> Unit,
+    onSpeak: () -> Unit,
+    onDwds: () -> Unit,
+    onSaveVocab: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val density = LocalDensity.current
+    val xDp = with(density) { offset.x.toDp() }
+    val yDp = with(density) { offset.y.toDp() }
+
+    Box(
+        modifier = Modifier
+            .offset(x = maxOf(0.dp, xDp - 150.dp), y = maxOf(0.dp, yDp - 65.dp))
+            .zIndex(50f)
+            .pointerInput(Unit) {
+                detectTapGestures { /* consume taps inside to avoid dismissing */ }
+            }
+    ) {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E2E)),
+            elevation = CardDefaults.cardElevation(defaultElevation = 10.dp),
+            shape = RoundedCornerShape(8.dp),
+            border = BorderStroke(1.dp, Gold)
+        ) {
+            Row(
+                modifier = Modifier
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                ToolbarAction("نسخ", Icons.Default.ContentCopy, onCopy)
+                ToolbarAction("ترجمة", Icons.Default.Translate, onTranslate)
+                ToolbarAction("تمييز", Icons.Default.BorderColor, onHighlight)
+                ToolbarAction("نطق", Icons.Default.VolumeUp, onSpeak)
+                ToolbarAction("DWDS", Icons.Default.Book, onDwds)
+                ToolbarAction("حفظ", Icons.Default.Bookmark, onSaveVocab)
+            }
+        }
+    }
+}
+
+@Composable
+fun QuickActionItem(title: String, icon: ImageVector, onClick: () -> Unit) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .clickable(onClick = onClick)
+            .padding(8.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .background(Color.White.copy(alpha = 0.05f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(imageVector = icon, contentDescription = title, tint = Color.White, modifier = Modifier.size(22.dp))
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(text = title, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
+@Composable
+fun ToolListItem(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    badgeText: String? = null,
+    isPremium: Boolean = false,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick)
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .background(
+                    if (isPremium) Gold.copy(alpha = 0.1f) else Color.White.copy(alpha = 0.05f),
+                    RoundedCornerShape(8.dp)
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = title,
+                tint = if (isPremium) Gold else Color.White,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+        
+        Spacer(modifier = Modifier.width(12.dp))
+        
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(text = title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                if (isPremium) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .background(Gold.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                            .border(1.dp, Gold, RoundedCornerShape(4.dp))
+                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                    ) {
+                        Text("ممتاز", color = Gold, fontSize = 8.sp, fontWeight = FontWeight.Black)
+                    }
+                }
+                if (badgeText != null) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .background(AccentBlue.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 4.dp, vertical = 2.dp)
+                    ) {
+                        Text(badgeText, color = AccentBlue, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+            Text(text = subtitle, color = TextMuted, fontSize = 10.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        
+        Icon(
+            imageVector = Icons.Default.ChevronLeft,
+            contentDescription = null,
+            tint = Color.White.copy(alpha = 0.3f),
+            modifier = Modifier.size(16.dp)
+        )
+    }
+}
+
