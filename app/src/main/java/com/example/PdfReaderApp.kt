@@ -23,6 +23,12 @@ class PdfReaderApp : Application() {
         super.onCreate()
         
         // Initialize singletons
+        try {
+            com.tom_roush.pdfbox.android.PDFBoxResourceLoader.init(this)
+            android.util.Log.d("PDFBox_INIT", "PDFBoxResourceLoader initialized successfully")
+        } catch (e: Throwable) {
+            android.util.Log.e("PDFBox_INIT", "Failed to initialize PDFBoxResourceLoader: ${e.message}", e)
+        }
         database = AppDatabase.getDatabase(this)
         pdfRepository = PdfRepository(this, database)
         settingsDataStore = SettingsDataStore(this)

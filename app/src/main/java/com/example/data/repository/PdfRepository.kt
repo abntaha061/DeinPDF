@@ -357,12 +357,12 @@ class PdfRepository(
             } else {
                 0
             }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             e.printStackTrace()
             0
         } finally {
-            try { renderer?.close() } catch (_: Exception) {}
-            try { pfd?.close() } catch (_: Exception) {}
+            try { renderer?.close() } catch (_: Throwable) {}
+            try { pfd?.close() } catch (_: Throwable) {}
         }
     }
 
@@ -383,7 +383,7 @@ class PdfRepository(
                     page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                     page.close()
                     bitmap
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                     e.printStackTrace()
                     null
                 }
@@ -440,15 +440,9 @@ class PdfRepository(
         var inputStream: java.io.InputStream? = null
         try {
             try {
-                val clazz = Class.forName("com.tom_roush.pdfbox.util.PDFBox")
-                clazz.getMethod("init", android.content.Context::class.java).invoke(null, context)
-            } catch (e1: Exception) {
-                try {
-                    val clazz = Class.forName("com.tom_roush.pdfbox.android.PDFBox")
-                    clazz.getMethod("init", android.content.Context::class.java).invoke(null, context)
-                } catch (e2: Exception) {
-                    e2.printStackTrace()
-                }
+                com.tom_roush.pdfbox.android.PDFBoxResourceLoader.init(context)
+            } catch (e1: Throwable) {
+                e1.printStackTrace()
             }
             inputStream = context.contentResolver.openInputStream(uri) ?: return@withContext emptyList()
             document = PDDocument.load(inputStream)
@@ -510,13 +504,9 @@ class PdfRepository(
         var inputStream: java.io.InputStream? = null
         try {
             try {
-                val clazz = Class.forName("com.tom_roush.pdfbox.util.PDFBox")
-                clazz.getMethod("init", android.content.Context::class.java).invoke(null, context)
-            } catch (_: Exception) {
-                try {
-                    val clazz = Class.forName("com.tom_roush.pdfbox.android.PDFBox")
-                    clazz.getMethod("init", android.content.Context::class.java).invoke(null, context)
-                } catch (_: Exception) {}
+                com.tom_roush.pdfbox.android.PDFBoxResourceLoader.init(context)
+            } catch (e1: Throwable) {
+                e1.printStackTrace()
             }
             inputStream = context.contentResolver.openInputStream(uri) ?: return@withContext ""
             document = PDDocument.load(inputStream)
@@ -525,12 +515,12 @@ class PdfRepository(
             stripper.startPage = pageIndex + 1
             stripper.endPage = pageIndex + 1
             stripper.getText(document) ?: ""
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             e.printStackTrace()
             ""
         } finally {
-            try { document?.close() } catch (_: Exception) {}
-            try { inputStream?.close() } catch (_: Exception) {}
+            try { document?.close() } catch (_: Throwable) {}
+            try { inputStream?.close() } catch (_: Throwable) {}
         }
     }
 }

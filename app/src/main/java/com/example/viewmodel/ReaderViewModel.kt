@@ -60,6 +60,16 @@ class ReaderViewModel(
     private val ocrManager: OcrManager
 ) : ViewModel() {
 
+    init {
+        android.util.Log.d("READER_VM", "ReaderViewModel initialized")
+    }
+
+    private val _errorMessage = MutableStateFlow<String?>(null)
+    val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
+
+    private val _isLoading = MutableStateFlow(false)
+    val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
+
     // ===== PDF state =====
     private val _pageWordsMap = MutableStateFlow<Map<Int, PageWordsData>>(emptyMap())
     val pageWordsMap: StateFlow<Map<Int, PageWordsData>> = _pageWordsMap.asStateFlow()
@@ -229,6 +239,20 @@ class ReaderViewModel(
         pdfUri = uri
         pdfId = id
         readStartTime = System.currentTimeMillis()
+        _errorMessage.value = null
+        _isLoading.value = true
+        
+        // Take persistent permission first
+        try {
+            context.contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        } catch (e: SecurityException) {
+            android.util.Log.w("CRASH_DEBUG", "Could not take persistent permission: ${e.message}")
+        } catch (e: Throwable) {
+            android.util.Log.w("CRASH_DEBUG", "Uri permission take error: ${e.message}")
+        }
         
         // Feature verification log statements for evaluation
         android.util.Log.d("FEATURE_CHECK", "TextSelection: IMPLEMENTED ✓")
@@ -241,27 +265,53 @@ class ReaderViewModel(
         android.util.Log.d("FEATURE_CHECK", "PdfMerge: IMPLEMENTED ✓")
 
         viewModelScope.launch {
-            _pageCount.value = repository.getPdfPageCount(uri)
-            
-            // Look up file metadata
-            repository.getAllFiles().firstOrNull()?.find { it.id == id }?.let { file ->
-                _currentPage.value = file.lastPage.coerceIn(0, (_pageCount.value - 1).coerceAtLeast(0))
-                pdfName = file.name
-            } ?: run {
-                pdfName = uri.lastPathSegment ?: "document.pdf"
-            }
+            try {
+                val pageCountVal = repository.getPdfPageCount(uri)
+                if (pageCountVal <= 0) {
+                    android.util.Log.e("CRASH_DEBUG", "File descriptor is empty or error for URI: $uri")
+                    _errorMessage.value = "الملف فارغ أو غير صالح"
+                    _isLoading.value = false
+                    return@launch
+                }
+                _pageCount.value = pageCountVal
+                
+                // Look up file metadata
+                repository.getAllFiles().firstOrNull()?.find { it.id == id }?.let { file ->
+                    _currentPage.value = file.lastPage.coerceIn(0, (pageCountVal - 1).coerceAtLeast(0))
+                    pdfName = file.name
+                } ?: run {
+                    pdfName = uri.lastPathSegment ?: "document.pdf"
+                }
 
-            // Bind bookmarks list
-            launch {
-                repository.getBookmarks(id).collect { _bookmarks.value = it }
-            }
-            // Bind annotations list
-            launch {
-                repository.getAllAnnotations(id).collect { _annotations.value = it }
-            }
+                // Bind bookmarks list
+                launch {
+                    try {
+                        repository.getBookmarks(id).collect { _bookmarks.value = it }
+                    } catch (e: Throwable) {
+                        android.util.Log.e("CRASH_DEBUG", "getBookmarks failed: ${e.message}")
+                    }
+                }
+                // Bind annotations list
+                launch {
+                    try {
+                        repository.getAllAnnotations(id).collect { _annotations.value = it }
+                    } catch (e: Throwable) {
+                        android.util.Log.e("CRASH_DEBUG", "getAnnotations failed: ${e.message}")
+                    }
+                }
 
-            // Prefetch initial pages surrounding the current page
-            prefetchSurroundingPages(uri, _currentPage.value)
+                // Prefetch initial pages surrounding the current page
+                try {
+                    prefetchSurroundingPages(uri, _currentPage.value)
+                } catch (e: Throwable) {
+                    android.util.Log.e("CRASH_DEBUG", "prefetchSurroundingPages failed: ${e.message}")
+                }
+            } catch (e: Throwable) {
+                android.util.Log.e("CRASH_DEBUG", "loadPdf inside scope failed: ${e.message}", e)
+                _errorMessage.value = "خطأ في فتح الملف: ${e.message}"
+            } finally {
+                _isLoading.value = false
+            }
         }
     }
 
@@ -597,29 +647,38 @@ class ReaderViewModel(
     }
 
     fun deserializeBlocks(serialized: String): List<OcrBlock> {
-        if (serialized.isBlank()) return emptyList()
-        val firstPipe = serialized.indexOf("|")
-        if (firstPipe == -1) return emptyList()
-        
-        val content = if (serialized.getOrNull(0)?.isDigit() == true && serialized.contains(",")) {
-            serialized.substring(firstPipe + 1)
-        } else {
-            serialized
-        }
-        
-        return content.split("|").mapNotNull { item ->
-            val parts = item.split(":")
-            if (parts.size >= 2) {
-                val text = parts[0].replace("\\:", ":").replace("\\|", "|")
-                val rectParts = parts[1].split(",")
-                if (rectParts.size == 4) {
-                    val left = rectParts[0].toIntOrNull() ?: 0
-                    val top = rectParts[1].toIntOrNull() ?: 0
-                    val right = rectParts[2].toIntOrNull() ?: 0
-                    val bottom = rectParts[3].toIntOrNull() ?: 0
-                    OcrBlock(text, android.graphics.Rect(left, top, right, bottom), emptyList())
-                } else null
-            } else null
+        try {
+            if (serialized.isBlank()) return emptyList()
+            val firstPipe = serialized.indexOf("|")
+            if (firstPipe == -1) return emptyList()
+            
+            val content = if (serialized.getOrNull(0)?.isDigit() == true && serialized.contains(",")) {
+                serialized.substring(firstPipe + 1)
+            } else {
+                serialized
+            }
+            
+            return content.split("|").mapNotNull { item ->
+                try {
+                    val parts = item.split(":")
+                    if (parts.size >= 2) {
+                        val text = parts[0].replace("\\:", ":").replace("\\|", "|")
+                        val rectParts = parts[1].split(",")
+                        if (rectParts.size == 4) {
+                            val left = rectParts[0].toIntOrNull() ?: 0
+                            val top = rectParts[1].toIntOrNull() ?: 0
+                            val right = rectParts[2].toIntOrNull() ?: 0
+                            val bottom = rectParts[3].toIntOrNull() ?: 0
+                            OcrBlock(text, android.graphics.Rect(left, top, right, bottom), emptyList())
+                        } else null
+                    } else null
+                } catch (inner: Throwable) {
+                    null
+                }
+            }
+        } catch (e: Throwable) {
+            android.util.Log.e("CRASH_DEBUG", "deserializeBlocks failed: ${e.message}", e)
+            return emptyList()
         }
     }
 
@@ -730,18 +789,31 @@ class ReaderViewModel(
         val data = _pageWordsMap.value[page]
         if (data != null) {
             val words = data.words
+            if (words.isEmpty()) {
+                _selectedText.value = ""
+                return
+            }
             val range = if (start <= end) start..end else end..start
             val validRange = range.first.coerceIn(words.indices)..range.last.coerceIn(words.indices)
             val selectedWords = words.slice(validRange).map { it.word }
             _selectedText.value = selectedWords.joinToString(" ")
         } else {
             viewModelScope.launch {
-                val pageText = repository.getPageOcrText(pdfId, page) ?: return@launch
-                val blocks = deserializeBlocks(pageText.wordCoordinatesJson)
-                val range = if (start <= end) start..end else end..start
-                val validRange = range.first.coerceIn(blocks.indices)..range.last.coerceIn(blocks.indices)
-                val words = blocks.slice(validRange).map { it.text }
-                _selectedText.value = words.joinToString(" ")
+                try {
+                    val pageText = repository.getPageOcrText(pdfId, page) ?: return@launch
+                    val blocks = deserializeBlocks(pageText.wordCoordinatesJson)
+                    if (blocks.isEmpty()) {
+                        _selectedText.value = ""
+                        return@launch
+                    }
+                    val range = if (start <= end) start..end else end..start
+                    val validRange = range.first.coerceIn(blocks.indices)..range.last.coerceIn(blocks.indices)
+                    val words = blocks.slice(validRange).map { it.text }
+                    _selectedText.value = words.joinToString(" ")
+                } catch (e: Throwable) {
+                    android.util.Log.e("CRASH_DEBUG", "updateSelectedText failed in coroutine: ${e.message}", e)
+                    _selectedText.value = ""
+                }
             }
         }
     }
@@ -1186,15 +1258,11 @@ class ReaderViewModel(
         }
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                // Initialize PDFBox
+                // Initialize PDFBox Resource Loader
                 try {
-                    val clazz = Class.forName("com.tom_roush.pdfbox.util.PDFBox")
-                    clazz.getMethod("init", android.content.Context::class.java).invoke(null, context)
-                } catch (_: Exception) {
-                    try {
-                        val clazz = Class.forName("com.tom_roush.pdfbox.android.PDFBox")
-                        clazz.getMethod("init", android.content.Context::class.java).invoke(null, context)
-                    } catch (_: Exception) {}
+                    com.tom_roush.pdfbox.android.PDFBoxResourceLoader.init(context)
+                } catch (e: Throwable) {
+                    android.util.Log.e("READER_DEBUG", "PDFBox init error: ${e.message}")
                 }
 
                 val inputStream = context.contentResolver.openInputStream(uri) ?: return@launch

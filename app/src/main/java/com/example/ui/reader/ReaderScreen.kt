@@ -71,6 +71,7 @@ fun ReaderScreen(
     onBack: () -> Unit,
     onNavigateToVocabulary: () -> Unit
 ) {
+    android.util.Log.d("READER_SCREEN", "ReaderScreen composed with URI: $pdfUri")
     val context = LocalContext.current
     val app = context.applicationContext as PdfReaderApp
     
@@ -106,6 +107,9 @@ fun ReaderScreen(
     val summaryText by viewModel.summaryText.collectAsState()
     val showSummary by viewModel.showSummary.collectAsState()
     val showQaChat by viewModel.showQaChat.collectAsState()
+
+    val errorMessage by viewModel.errorMessage.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
 
     // Sub-annotations state (text vs sticky)
     var annotationSubTool by remember { mutableStateOf("text") }
@@ -437,8 +441,58 @@ fun ReaderScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            // Main Pdf Workspace Scroll Loop
-            if (pageCount > 0) {
+            when {
+                errorMessage != null -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0xFF010409)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            modifier = Modifier.padding(24.dp)
+                        ) {
+                            Text("⚠️", fontSize = 48.sp)
+                            Text(
+                                "تعذّر فتح الملف",
+                                color = Color.White,
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                errorMessage ?: "",
+                                color = Color(0xFF8B949E),
+                                fontSize = 14.sp,
+                                textAlign = TextAlign.Center
+                            )
+                            Button(
+                                onClick = onBack,
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2196F3))
+                            ) {
+                                Text("العودة للقائمة الرئيسية")
+                            }
+                        }
+                    }
+                }
+                isLoading -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0xFF010409)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator(color = Color(0xFF2196F3))
+                            Spacer(Modifier.height(16.dp))
+                            Text("جاري تحميل وتجهيز الملف...", color = Color.White)
+                        }
+                    }
+                }
+                else -> {
+                    // Main Pdf Workspace Scroll Loop
+                    if (pageCount > 0) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -670,14 +724,9 @@ fun ReaderScreen(
                         }
                     }
                 }
-            } else {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator(color = AccentBlue)
                 }
             }
+        }
 
 
 
@@ -2244,13 +2293,18 @@ fun PdfPageRenderItem(
 
     // Load page bitmap dynamically on-demand with settledScale
     LaunchedEffect(pageIndex, pdfUri, settledScale) {
-        isLoading = true
-        val targetWidth = (1080 * settledScale).toInt().coerceIn(540, 3240)
-        val bm = viewModel.getPageBitmap(pdfUri, pageIndex, targetWidth)
-        if (bm != null) {
-            pageBitmap = bm
+        try {
+            isLoading = true
+            val targetWidth = (1080 * settledScale).toInt().coerceIn(540, 3240)
+            val bm = viewModel.getPageBitmap(pdfUri, pageIndex, targetWidth)
+            if (bm != null) {
+                pageBitmap = bm
+            }
+        } catch (e: Throwable) {
+            android.util.Log.e("READER_SCREEN_CRASH_DEBUG", "Error loading page bitmap index $pageIndex: ${e.message}", e)
+        } finally {
+            isLoading = false
         }
-        isLoading = false
     }
 
     val density = LocalDensity.current
@@ -2272,11 +2326,15 @@ fun PdfPageRenderItem(
 
     val pageTextState = remember(pageIndex, pdfUri) { mutableStateOf<OcrPageText?>(null) }
     LaunchedEffect(pageIndex, pdfUri) {
-        viewModel.loadPageWords(pdfUri, pageIndex, context)
-        val ocrText = viewModel.getPageOcrText(pageIndex)
-        pageTextState.value = ocrText
-        val words = viewModel.deserializeBlocks(ocrText?.wordCoordinatesJson ?: "")
-        android.util.Log.d("READER_DEBUG", "Page loaded, words count: ${words.size}")
+        try {
+            viewModel.loadPageWords(pdfUri, pageIndex, context)
+            val ocrText = viewModel.getPageOcrText(pageIndex)
+            pageTextState.value = ocrText
+            val words = viewModel.deserializeBlocks(ocrText?.wordCoordinatesJson ?: "")
+            android.util.Log.d("READER_DEBUG", "Page loaded, words count: ${words.size}")
+        } catch (e: Throwable) {
+            android.util.Log.e("READER_SCREEN_CRASH_DEBUG", "Error loading page words: ${e.message}", e)
+        }
     }
     val wordBlocks = remember(pageTextState.value, pageWordsData) {
         if (pageWordsData != null && pageWordsData.words.isNotEmpty()) {
