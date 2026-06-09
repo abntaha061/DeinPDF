@@ -104,6 +104,7 @@ fun ReaderScreen(
     val searchResultCount by viewModel.searchResultCount.collectAsState()
 
     val isTtsPlaying by viewModel.isTtsPlaying.collectAsState()
+    val selectionStartPageIndex by viewModel.selectionStartPageIndex.collectAsState()
     val summaryText by viewModel.summaryText.collectAsState()
     val showSummary by viewModel.showSummary.collectAsState()
     val showQaChat by viewModel.showQaChat.collectAsState()
@@ -691,7 +692,8 @@ fun ReaderScreen(
                     LazyColumn(
                         state = lazyListState,
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(bottom = 120.dp, top = 8.dp)
+                        contentPadding = PaddingValues(bottom = 120.dp, top = 8.dp),
+                        userScrollEnabled = (selectionStartPageIndex == null)
                     ) {
                         items(pageCount) { pageIndex ->
                             PdfPageRenderItem(
@@ -2621,27 +2623,19 @@ fun PdfPageRenderItem(
                                 onDoubleTap = { tapOffset ->
                                     onDoubleTapZoom(tapOffset, containerSize)
                                 },
-                                onLongPress = { tapOffset ->
-                                    android.util.Log.d("READER_DEBUG", "LongPress detected at offset=$tapOffset")
-                                    val clickedIndex = findWordUnderTouch(tapOffset, containerSize, wordBlocks)
-                                    if (clickedIndex != -1) {
-                                        viewModel.startSelection(pageIndex, clickedIndex, tapOffset)
-                                        viewModel.showSelectionMenuAt(Offset(containerSize.width / 2f, 40f))
-                                        android.util.Log.d("READER_DEBUG", "Started selection at index $clickedIndex")
-                                    } else {
-                                        android.util.Log.d("READER_DEBUG", "Scanned PDF: running local OCR on tap position")
-                                        onShowToolbar()
-                                        viewModel.ocrAtPosition(
-                                            uri = pdfUri,
-                                            pageIndex = pageIndex,
-                                            tapX = tapOffset.x,
-                                            tapY = tapOffset.y,
-                                            pageViewWidth = containerSize.width
-                                        ) { extractedWord ->
-                                            onLongPressOcrResult(extractedWord)
-                                        }
+                                onLongPress = if (wordBlocks.isEmpty()) { tapOffset ->
+                                    android.util.Log.d("READER_DEBUG", "Scanned PDF: running local OCR on tap position")
+                                    onShowToolbar()
+                                    viewModel.ocrAtPosition(
+                                        uri = pdfUri,
+                                        pageIndex = pageIndex,
+                                        tapX = tapOffset.x,
+                                        tapY = tapOffset.y,
+                                        pageViewWidth = containerSize.width
+                                    ) { extractedWord ->
+                                        onLongPressOcrResult(extractedWord)
                                     }
-                                },
+                                } else null,
                                 onTap = { tapOffset ->
                                     if (selectionStartPageIndex != null) {
                                         viewModel.clearSelection()
