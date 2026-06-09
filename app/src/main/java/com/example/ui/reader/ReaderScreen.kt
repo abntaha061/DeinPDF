@@ -2460,6 +2460,10 @@ fun PdfPageRenderItem(
     val showSelectionMenu by viewModel.showSelectionMenu.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val searchResults by viewModel.searchResults.collectAsState()
+    val ttsSentences by viewModel.ttsSentences.collectAsState()
+    val ttsCurrentPageIndex by viewModel.ttsCurrentPageIndex.collectAsState()
+    val ttsCurrentSentenceIdx by viewModel.ttsCurrentSentenceIndex.collectAsState()
+    val isTtsPlaying by viewModel.isTtsPlaying.collectAsState()
 
     val pageWordsMapState by viewModel.pageWordsMap.collectAsState()
     val pageWordsData = pageWordsMapState[pageIndex]
@@ -2642,64 +2646,71 @@ fun PdfPageRenderItem(
                                     if (selectionStartPageIndex != null) {
                                         viewModel.clearSelection()
                                     } else {
-                                        when (currentTool) {
-                                            ReaderTool.NONE, ReaderTool.TRANSLATE -> {
-                                                val canvasSize = Size(containerSize.width.toFloat(), containerSize.height.toFloat())
-                                                android.util.Log.d("READER_DEBUG", "Tap detected - translation/link check")
-                                                val hasLink = viewModel.checkLinkAtOffset(tapOffset, pageIndex, canvasSize)
-                                                if (hasLink) {
-                                                    viewModel.translateWordAtOffset(tapOffset, canvasSize, pageIndex, context, onNonLinkClick)
-                                                } else {
-                                                    onNonLinkClick()
+                                        val isTtsActive = ttsSentences.isNotEmpty()
+                                        val clickedIndex = findWordUnderTouch(tapOffset, containerSize, wordBlocks)
+                                        if (isTtsActive && clickedIndex != -1) {
+                                            android.util.Log.d("READER_DEBUG", "TTS is active, jumping to tapped word at $clickedIndex")
+                                            viewModel.jumpTtsToWord(context, pageIndex, clickedIndex)
+                                        } else {
+                                            when (currentTool) {
+                                                ReaderTool.NONE, ReaderTool.TRANSLATE -> {
+                                                    val canvasSize = Size(containerSize.width.toFloat(), containerSize.height.toFloat())
+                                                    android.util.Log.d("READER_DEBUG", "Tap detected - translation/link check")
+                                                    val hasLink = viewModel.checkLinkAtOffset(tapOffset, pageIndex, canvasSize)
+                                                    if (hasLink) {
+                                                        viewModel.translateWordAtOffset(tapOffset, canvasSize, pageIndex, context, onNonLinkClick)
+                                                    } else {
+                                                        onNonLinkClick()
+                                                    }
                                                 }
-                                            }
-                                            ReaderTool.HIGHLIGHT -> {
-                                                val idx = findWordUnderTouch(tapOffset, containerSize, wordBlocks)
-                                                if (idx != -1) {
-                                                    val rect = wordBlocks[idx].boundingBox
-                                                    if (rect != null) {
-                                                        val scaleX = containerSize.width.toFloat() / 1080f
-                                                        val aspectVal = bitmap.width.toFloat() / bitmap.height.toFloat()
-                                                        val originalHeightVal = 1080f / aspectVal
-                                                        val scaleY = containerSize.height.toFloat() / originalHeightVal
+                                                ReaderTool.HIGHLIGHT -> {
+                                                    val idx = findWordUnderTouch(tapOffset, containerSize, wordBlocks)
+                                                    if (idx != -1) {
+                                                        val rect = wordBlocks[idx].boundingBox
+                                                        if (rect != null) {
+                                                            val scaleX = containerSize.width.toFloat() / 1080f
+                                                            val aspectVal = bitmap.width.toFloat() / bitmap.height.toFloat()
+                                                            val originalHeightVal = 1080f / aspectVal
+                                                            val scaleY = containerSize.height.toFloat() / originalHeightVal
+                                                            viewModel.addAnnotation(
+                                                                PdfAnnotation(
+                                                                    pdfId = viewModel.pdfId,
+                                                                    page = pageIndex,
+                                                                    type = AnnotationType.HIGHLIGHT,
+                                                                    content = wordBlocks[idx].text,
+                                                                    x = rect.left * scaleX,
+                                                                    y = rect.top * scaleY,
+                                                                    width = (rect.right - rect.left) * scaleX,
+                                                                    height = (rect.bottom - rect.top) * scaleY,
+                                                                    colorHex = "#fbbf24"
+                                                                )
+                                                            )
+                                                        }
+                                                    } else {
                                                         viewModel.addAnnotation(
                                                             PdfAnnotation(
                                                                 pdfId = viewModel.pdfId,
                                                                 page = pageIndex,
                                                                 type = AnnotationType.HIGHLIGHT,
-                                                                content = wordBlocks[idx].text,
-                                                                x = rect.left * scaleX,
-                                                                y = rect.top * scaleY,
-                                                                width = (rect.right - rect.left) * scaleX,
-                                                                height = (rect.bottom - rect.top) * scaleY,
+                                                                x = tapOffset.x - 70f,
+                                                                y = tapOffset.y - 14f,
+                                                                width = 140f,
+                                                                height = 28f,
                                                                 colorHex = "#fbbf24"
                                                             )
                                                         )
                                                     }
-                                                } else {
-                                                    viewModel.addAnnotation(
-                                                        PdfAnnotation(
-                                                            pdfId = viewModel.pdfId,
-                                                            page = pageIndex,
-                                                            type = AnnotationType.HIGHLIGHT,
-                                                            x = tapOffset.x - 70f,
-                                                            y = tapOffset.y - 14f,
-                                                            width = 140f,
-                                                            height = 28f,
-                                                            colorHex = "#fbbf24"
-                                                        )
-                                                    )
                                                 }
-                                            }
-                                            ReaderTool.NOTE -> {
-                                                if (annotationSubTool == "sticky") {
-                                                    onAddStickyNote(pageIndex, tapOffset)
-                                                } else {
-                                                    onAddText(pageIndex, tapOffset)
+                                                ReaderTool.NOTE -> {
+                                                    if (annotationSubTool == "sticky") {
+                                                        onAddStickyNote(pageIndex, tapOffset)
+                                                    } else {
+                                                        onAddText(pageIndex, tapOffset)
+                                                    }
                                                 }
-                                            }
-                                            else -> {
-                                                onShowToolbar()
+                                                else -> {
+                                                    onShowToolbar()
+                                                }
                                             }
                                         }
                                     }
@@ -2882,6 +2893,42 @@ fun PdfPageRenderItem(
                                     size = Size(annot.width, annot.height)
                                 )
                             }
+
+                        // 1D. Draw active TTS sentence highlight (WPS Style)
+                        if (isTtsPlaying && ttsCurrentPageIndex == pageIndex && ttsCurrentSentenceIdx != -1) {
+                            val activeSentence = ttsSentences.getOrNull(ttsCurrentSentenceIdx)
+                            if (activeSentence != null && pageWordsData != null && pageWords.isNotEmpty()) {
+                                val scaleX = size.width / pageWordsData.pageWidth
+                                val scaleY = size.height / pageWordsData.pageHeight
+                                
+                                pageWords.forEach { word ->
+                                    if (activeSentence.contains(word.word, ignoreCase = true)) {
+                                        drawRect(
+                                            color = Color(0xFFFBBF24).copy(alpha = 0.35f), // Golden amber translucent overlay
+                                            topLeft = Offset(word.rect.left * scaleX, word.rect.top * scaleY),
+                                            size = Size((word.rect.right - word.rect.left) * scaleX, (word.rect.bottom - word.rect.top) * scaleY)
+                                        )
+                                    }
+                                }
+                            } else if (activeSentence != null && wordBlocks.isNotEmpty()) {
+                                val scaleX = size.width / 1080f
+                                val originalHeight = 1080f / aspect
+                                val scaleY = size.height / originalHeight
+                                
+                                wordBlocks.forEach { block ->
+                                    if (activeSentence.contains(block.text, ignoreCase = true)) {
+                                        val rect = block.boundingBox
+                                        if (rect != null) {
+                                            drawRect(
+                                                color = Color(0xFFFBBF24).copy(alpha = 0.35f),
+                                                topLeft = Offset(rect.left * scaleX, rect.top * scaleY),
+                                                size = Size((rect.right - rect.left) * scaleX, (rect.bottom - rect.top) * scaleY)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
 
                         // 1B. Draw Real Time Text Selection
                         if (selectionStartPageIndex == pageIndex && selectionStartWordIdx != -1 && selectionEndWordIdx != -1 && pageWordsData != null && pageWords.isNotEmpty()) {

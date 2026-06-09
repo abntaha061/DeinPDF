@@ -167,6 +167,9 @@ class ReaderViewModel(
     private val _ttsCurrentSentenceIndex = MutableStateFlow(-1)
     val ttsCurrentSentenceIndex: StateFlow<Int> = _ttsCurrentSentenceIndex.asStateFlow()
 
+    private val _ttsCurrentPageIndex = MutableStateFlow(-1)
+    val ttsCurrentPageIndex: StateFlow<Int> = _ttsCurrentPageIndex.asStateFlow()
+
     // ===== Translatation Popups =====
     private val _translationResult = MutableStateFlow<TranslationResult?>(null)
     val translationResult: StateFlow<TranslationResult?> = _translationResult.asStateFlow()
@@ -824,7 +827,9 @@ class ReaderViewModel(
         if (_isTtsPlaying.value) {
             tts?.stop()
             _isTtsPlaying.value = false
+            _ttsCurrentPageIndex.value = -1
         } else {
+            _ttsCurrentPageIndex.value = pageIndex
             // Resume if sentences are already present and index is set
             if (_ttsSentences.value.isNotEmpty() && _ttsCurrentSentenceIndex.value != -1) {
                 val hasArabic = _ttsSentences.value.any { s -> s.any { it in '\u0600'..'\u06FF' } }
@@ -854,7 +859,7 @@ class ReaderViewModel(
                             val sentences = textToSpeak.split(Regex("[.!?؟\n]")).map { it.trim() }.filter { it.length > 2 }
                             if (sentences.isNotEmpty()) {
                                 _ttsSentences.value = sentences
-                                val hasArabic = textToSpeak.any { it in '\u0600'..'\u06FF' }
+                                val hasArabic = textToSpeak.any { i -> i in '\u0600'..'\u06FF' }
                                 speakSentence(context, 0, hasArabic)
                                 return@launch
                             }
@@ -879,6 +884,7 @@ class ReaderViewModel(
         if (index < 0 || index >= list.size) {
             _isTtsPlaying.value = false
             _ttsCurrentSentenceIndex.value = -1
+            _ttsCurrentPageIndex.value = -1
             return
         }
         
@@ -930,11 +936,78 @@ class ReaderViewModel(
         }
     }
 
+    fun jumpTtsToWord(context: Context, pageIndex: Int, wordIndex: Int) {
+        viewModelScope.launch {
+            try {
+                _ttsCurrentPageIndex.value = pageIndex
+                var textToSpeak = ""
+                val cachedOcr = repository.getPageOcrText(pdfId, pageIndex)
+                var wordCoordinatesJson = ""
+                if (cachedOcr != null) {
+                    textToSpeak = cachedOcr.text
+                    wordCoordinatesJson = cachedOcr.wordCoordinatesJson
+                } else {
+                    val uri = pdfUri
+                    if (uri != null) {
+                        val bitmap = getCachedBitmapForPage(pageIndex) ?: getPageBitmap(uri, pageIndex)
+                        if (bitmap != null) {
+                            val ocrResult = ocrManager.recognizeText(bitmap, com.example.utils.OcrLanguage.AUTO)
+                            textToSpeak = ocrResult.fullText
+                            val serialized = "${bitmap.width},${bitmap.height}|" + serializeBlocks(ocrResult.blocks)
+                            repository.savePageOcrText(pdfId, pageIndex, textToSpeak, serialized)
+                            wordCoordinatesJson = serialized
+                        }
+                    }
+                }
+
+                val blocks = deserializeBlocks(wordCoordinatesJson)
+                if (blocks.isEmpty() || wordIndex !in blocks.indices) {
+                    toggleTts(context, pageIndex)
+                    return@launch
+                }
+
+                // Get sentences using the exact same split logic as toggleTts
+                val sentences = textToSpeak.split(Regex("[.!?؟\n]")).map { it.trim() }.filter { it.length > 2 }
+                if (sentences.isEmpty()) {
+                    toggleTts(context, pageIndex)
+                    return@launch
+                }
+
+                // Neighborhood matching overlap algorithm to find appropriate sentence idx
+                val contextWords = (wordIndex - 2..wordIndex + 2).map { blocks.getOrNull(it)?.text ?: "" }.filter { it.isNotBlank() }
+                var bestSentenceIdx = 0
+                var maxOverlap = -1
+
+                for ((sIdx, sentence) in sentences.withIndex()) {
+                    var overlap = 0
+                    for (w in contextWords) {
+                        if (sentence.contains(w, ignoreCase = true)) {
+                            overlap++
+                        }
+                    }
+                    if (overlap > maxOverlap) {
+                        maxOverlap = overlap
+                        bestSentenceIdx = sIdx
+                    }
+                }
+
+                _ttsSentences.value = sentences
+                val hasArabic = textToSpeak.any { i -> i in '\u0600'..'\u06FF' }
+                speakSentence(context, bestSentenceIdx, hasArabic)
+
+            } catch (e: Exception) {
+                android.util.Log.e("READER_DEBUG", "jumpTtsToWord failed", e)
+                toggleTts(context, pageIndex)
+            }
+        }
+    }
+
     fun stopTts() {
         tts?.stop()
         _isTtsPlaying.value = false
         _ttsSentences.value = emptyList()
         _ttsCurrentSentenceIndex.value = -1
+        _ttsCurrentPageIndex.value = -1
     }
 
     fun setTtsSpeed(speed: Float) {
