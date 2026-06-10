@@ -1,10 +1,12 @@
 package com.example.ui.reader
 
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.net.Uri
+import android.provider.OpenableColumns
 import android.util.Base64
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
@@ -23,9 +25,35 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+
+fun getCleanFileName(context: Context, uri: Uri): String {
+    var result = "ملف PDF"
+    if (uri.scheme == "content") {
+        val cursor = context.contentResolver.query(uri, null, null, null, null)
+        try {
+            if (cursor != null && cursor.moveToFirst()) {
+                val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (index != -1) {
+                    result = cursor.getString(index)
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        } finally {
+            cursor?.close()
+        }
+    }
+    if (result == "ملف PDF" || result.startsWith("document")) {
+        result = uri.lastPathSegment?.substringAfterLast("/") ?: "ملف PDF"
+    }
+    return result.replace("document:", "").replace(".pdf", "", ignoreCase = true)
+}
 
 @Composable
 fun ReaderScreen(
@@ -39,24 +67,44 @@ fun ReaderScreen(
     var copyError by remember { mutableStateOf<String?>(null) }
     var isPreparingFile by remember { mutableStateOf(true) }
 
+    // إخفاء شريط الإشعارات عند فتح القارئ
+    val window = (context as? Activity)?.window
+    LaunchedEffect(Unit) {
+        window?.let {
+            WindowCompat.setDecorFitsSystemWindows(it, false)
+            val controller = WindowInsetsControllerCompat(it, it.decorView)
+            controller.hide(WindowInsetsCompat.Type.statusBars())
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
+    }
+
+    // إعادة شريط الإشعارات عند الخروج
+    DisposableEffect(Unit) {
+        onDispose {
+            window?.let {
+                WindowCompat.setDecorFitsSystemWindows(it, true)
+                val controller = WindowInsetsControllerCompat(it, it.decorView)
+                controller.show(WindowInsetsCompat.Type.statusBars())
+            }
+        }
+    }
+
     LaunchedEffect(pdfUri) {
         withContext(Dispatchers.IO) {
             try {
                 isPreparingFile = true
                 val destinationFile = File(context.cacheDir, "temp_viewer.pdf")
-                if (destinationFile.exists()) {
-                    destinationFile.delete()
-                }
-                context.contentResolver.openInputStream(pdfUri)?.use { inputStream ->
-                    destinationFile.outputStream().use { outputStream ->
-                        inputStream.copyTo(outputStream)
+                if (destinationFile.exists()) destinationFile.delete()
+                context.contentResolver.openInputStream(pdfUri)?.use { input ->
+                    destinationFile.outputStream().use { output ->
+                        input.copyTo(output)
                     }
                 }
                 tempFilePath = destinationFile.absolutePath
                 copyError = null
             } catch (e: Exception) {
                 copyError = e.localizedMessage
-                e.printStackTrace()
             } finally {
                 isPreparingFile = false
             }
@@ -93,14 +141,12 @@ fun ReaderScreen(
                         .padding(24.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = "❌ حدث خطأ أثناء تحميل الملف:\n$copyError",
-                            color = Color.Red,
-                            fontSize = 16.sp,
-                            textAlign = TextAlign.Center
-                        )
-                    }
+                    Text(
+                        text = "❌ حدث خطأ أثناء تحميل الملف:\n$copyError",
+                        color = Color.Red,
+                        fontSize = 16.sp,
+                        textAlign = TextAlign.Center
+                    )
                 }
             }
             tempFilePath != null -> {
