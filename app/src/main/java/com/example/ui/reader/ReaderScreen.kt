@@ -14,6 +14,7 @@ import android.webkit.WebViewClient
 import android.webkit.WebChromeClient
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -66,8 +67,10 @@ fun ReaderScreen(
     var tempFilePath by remember { mutableStateOf<String?>(null) }
     var copyError by remember { mutableStateOf<String?>(null) }
     var isPreparingFile by remember { mutableStateOf(true) }
+    var currentPage by remember { mutableStateOf(1) }
+    var totalPages by remember { mutableStateOf(1) }
+    var webViewRef by remember { mutableStateOf<WebView?>(null) }
 
-    // إخفاء شريط الإشعارات عند فتح القارئ
     val window = (context as? Activity)?.window
     LaunchedEffect(Unit) {
         window?.let {
@@ -79,7 +82,6 @@ fun ReaderScreen(
         }
     }
 
-    // إعادة شريط الإشعارات عند الخروج
     DisposableEffect(Unit) {
         onDispose {
             window?.let {
@@ -183,6 +185,20 @@ fun ReaderScreen(
                                 }
 
                                 @JavascriptInterface
+                                fun onTotalPages(total: Int) {
+                                    (ctx as? Activity)?.runOnUiThread {
+                                        totalPages = total
+                                    }
+                                }
+
+                                @JavascriptInterface
+                                fun onPageChanged(page: Int) {
+                                    (ctx as? Activity)?.runOnUiThread {
+                                        currentPage = page
+                                    }
+                                }
+
+                                @JavascriptInterface
                                 fun onLinkIntercepted(url: String) {
                                     (ctx as? Activity)?.runOnUiThread {
                                         if (url.contains("translate_tts", ignoreCase = true) || url.endsWith(".mp3", ignoreCase = true)) {
@@ -225,12 +241,48 @@ fun ReaderScreen(
 
                             webChromeClient = WebChromeClient()
                             webViewClient = WebViewClient()
-
+                            webViewRef = this
                             loadUrl("file:///android_asset/pdfjs/viewer.html")
                         }
                     },
                     modifier = Modifier.fillMaxSize()
                 )
+
+                // Bottom Bar
+                if (totalPages > 1) {
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .background(Color.Black.copy(alpha = 0.7f))
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "$currentPage / $totalPages",
+                                color = Color.White,
+                                fontSize = 14.sp
+                            )
+                        }
+
+                        Slider(
+                            value = currentPage.toFloat(),
+                            onValueChange = { },
+                            onValueChangeFinished = { },
+                            valueRange = 1f..totalPages.toFloat(),
+                            colors = SliderDefaults.colors(
+                                thumbColor = Color.White,
+                                activeTrackColor = Color(0xFF2196F3),
+                                inactiveTrackColor = Color.White.copy(alpha = 0.3f)
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
             }
         }
     }
