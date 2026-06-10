@@ -1,292 +1,142 @@
 <!DOCTYPE html>
-<html lang="ar">
+<html>
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>قارئ PDF</title>
-    <!-- CSS fallback styling for perfect text layer and dark UI -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <script src="pdf.min.js"></script>
     <style>
-        body, html {
+        body {
             margin: 0;
             padding: 0;
-            background-color: #0b0f19; /* Cosmic Slate Dark theme background */
-            color: #f3f4f6;
-            font-family: system-ui, -apple-system, sans-serif;
-            overflow-x: hidden;
-            width: 100%;
-        }
-
-        #viewer-container {
+            background-color: #0B0F19;
             display: flex;
             flex-direction: column;
             align-items: center;
+        }
+        #viewer {
             width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
             padding: 10px 0;
-            box-sizing: border-box;
         }
-
-        .page-wrapper {
+        .page-container {
             position: relative;
-            background-color: #1e293b;
-            margin-bottom: 16px;
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.4);
-            border-radius: 8px;
-            overflow: hidden;
-            max-width: 100%;
+            margin-bottom: 15px;
+            background-color: white;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
         }
-
         canvas {
             display: block;
             width: 100%;
             height: auto;
         }
-
-        /* Essential styles for PDF.js text layer selection overlay */
+        /* تصميم طبقة النصوص والروابط التفاعلية السحرية */
         .textLayer {
             position: absolute;
-            left: 0;
-            top: 0;
-            right: 0;
-            bottom: 0;
+            left: 0; top: 0; right: 0; bottom: 0;
             overflow: hidden;
-            opacity: 1; /* Keep it visible but transparent colors */
+            opacity: 1;
             line-height: 1.0;
         }
-
-        .textLayer > span {
-            color: transparent !important; /* Hide the text, leaving it selectable */
+        .textLayer span, .textLayer br {
+            color: transparent; /* جعل النص شفاف ليظهر رسم الـ PDF الأصلي تحته */
             position: absolute;
             white-space: pre;
             cursor: text;
             transform-origin: 0% 0%;
         }
-
-        /* High-contrast custom selection highlight */
-        ::selection {
-            background: rgba(59, 130, 246, 0.4) !important; /* Modern Accent Blue select tint */
-        }
-        ::-moz-selection {
-            background: rgba(59, 130, 246, 0.4) !important;
-        }
-
-        #loader {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            font-size: 16px;
-            color: #9ca3af;
-            font-weight: 500;
-            z-index: 999;
-            text-align: center;
-            background: rgba(15, 23, 42, 0.85);
-            padding: 12px 24px;
-            border-radius: 12px;
-            border: 1px solid #334155;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .spinner {
-            width: 32px;
-            height: 32px;
-            border: 3px solid rgba(59, 130, 246, 0.1);
-            border-radius: 50%;
-            border-top-color: #3b82f6;
-            animation: spin 1s ease-in-out infinite;
-        }
-
-        @keyframes spin {
-            to { transform: rotate(360deg); }
+        /* تفعيل نقرات الروابط المدمجة داخل النصوص */
+        .textLayer a {
+            color: transparent;
+            cursor: pointer;
+            position: absolute;
         }
     </style>
-    <!-- Include PDF.js and Worker downloaded locally in assets -->
-    <script src="pdf.min.js"></script>
 </head>
 <body>
-
-    <div id="loader">
-        <div class="spinner"></div>
-        <div>جاري تحميل الملف...</div>
-    </div>
-
-    <div id="viewer-container"></div>
+    <div id="viewer"></div>
 
     <script>
-        // Set worker globally using the local file
+        // إعداد وتشغيل مشغل الـ PDF الخلفي
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf.worker.min.js';
 
-        // Display current scale layout matching Inner Width
-        async function loadPdfFromBase64(base64Data) {
-            try {
-                // Remove loader or show updates
-                document.getElementById('loader').style.display = 'flex';
-                
-                const binData = atob(base64Data);
-                const loadingTask = pdfjsLib.getDocument({ data: binData });
-                const pdf = await loadingTask.promise;
-                const container = document.getElementById('viewer-container');
-                container.innerHTML = ''; // clear initial HTML content
-                
-                // Get page rendering configuration based on screen width
-                const screenWidth = window.innerWidth;
-                
-                // Iteratively render each page scrollably
-                for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-                    const page = await pdf.getPage(pageNum);
-                    
-                    // Match viewport to screen size
-                    const unscaledViewport = page.getViewport({ scale: 1.0 });
-                    // Provide standard 10px padding on left/right for margins
-                    const targetWidth = screenWidth - 20; 
-                    const scale = targetWidth / unscaledViewport.width;
-                    const viewport = page.getViewport({ scale: scale });
-                    
-                    // Page card wrapper
-                    const pageWrapper = document.createElement('div');
-                    pageWrapper.className = 'page-wrapper';
-                    pageWrapper.style.width = targetWidth + 'px';
-                    pageWrapper.style.height = viewport.height + 'px';
-                    container.appendChild(pageWrapper);
-                    
-                    // Render canvas background
-                    const canvas = document.createElement('canvas');
-                    const context = canvas.getContext('2d');
-                    canvas.width = viewport.width;
-                    canvas.height = viewport.height;
-                    pageWrapper.appendChild(canvas);
-                    
-                    await page.render({
-                        canvasContext: context,
-                        viewport: viewport
-                    }).promise;
-                    
-                    // Create text layer for text selection mapping override
-                    const textLayer = document.createElement('div');
-                    textLayer.className = 'textLayer';
-                    pageWrapper.appendChild(textLayer);
-                    
-                    const textContent = await page.getTextContent();
-                    
-                    // Render text content over the page
-                    await pdfjsLib.renderTextLayer({
-                        textContent: textContent,
-                        container: textLayer,
-                        viewport: viewport,
-                        textDivs: []
-                    }).promise;
-                }
-                
-                // Hide loader
-                document.getElementById('loader').style.display = 'none';
-                
-                // Inform Android platform UI about loading finished successfully
-                if (window.AndroidPdfViewer && window.AndroidPdfViewer.onPdfLoaded) {
-                    window.AndroidPdfViewer.onPdfLoaded(pdf.numPages);
-                }
-            } catch (error) {
-                console.error("PDF.js Loader Error: ", error);
-                document.getElementById('loader').innerHTML = '❌ فشل في عرض الملف: ' + error.message;
-                if (window.AndroidPdfViewer && window.AndroidPdfViewer.onError) {
-                    window.AndroidPdfViewer.onError(error.message);
-                }
+        // سحب بيانات الملف من كوتلن كـ Base64 لكسر حظر الأمان
+        const base64Data = AndroidPdfBridge.getPdfBase64();
+        
+        if (!base64Data) {
+            document.getElementById('viewer').innerHTML = "<p style='color:red;text-align:center;'>خطأ في قراءة ملف المستند الرسمي.</p>";
+        } else {
+            // تحويل النص المشفر إلى مصفوفة بايتات حقيقية يفهمها المحرك
+            const raw = window.atob(base64Data);
+            const array = new Uint8Array(new ArrayBuffer(raw.length));
+            for(let i = 0; i < raw.length; i++) {
+                array[i] = raw.charCodeAt(i);
             }
+
+            // تحميل المستند ورسمه بالكامل صفحة صفحة
+            pdfjsLib.getDocument({data: array}).promise.then(function(pdf) {
+                const viewer = document.getElementById('viewer');
+                for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                    renderPage(pdf, pageNum, viewer);
+                }
+            });
         }
 
-        async function loadPdfFromUrl(url) {
-            try {
-                // Remove loader or show updates
-                document.getElementById('loader').style.display = 'flex';
-                
-                const loadingTask = pdfjsLib.getDocument(url);
-                const pdf = await loadingTask.promise;
-                const container = document.getElementById('viewer-container');
-                container.innerHTML = ''; // clear initial HTML content
-                
-                // Get page rendering configuration based on screen width
-                const screenWidth = window.innerWidth;
-                
-                // Iteratively render each page scrollably
-                for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-                    const page = await pdf.getPage(pageNum);
-                    
-                    // Match viewport to screen size
-                    const unscaledViewport = page.getViewport({ scale: 1.0 });
-                    // Provide standard 10px padding on left/right for margins
-                    const targetWidth = screenWidth - 20; 
-                    const scale = targetWidth / unscaledViewport.width;
-                    const viewport = page.getViewport({ scale: scale });
-                    
-                    // Page card wrapper
-                    const pageWrapper = document.createElement('div');
-                    pageWrapper.className = 'page-wrapper';
-                    pageWrapper.style.width = targetWidth + 'px';
-                    pageWrapper.style.height = viewport.height + 'px';
-                    container.appendChild(pageWrapper);
-                    
-                    // Render canvas background
-                    const canvas = document.createElement('canvas');
-                    const context = canvas.getContext('2d');
-                    canvas.width = viewport.width;
-                    canvas.height = viewport.height;
-                    pageWrapper.appendChild(canvas);
-                    
-                    await page.render({
-                        canvasContext: context,
-                        viewport: viewport
-                    }).promise;
-                    
-                    // Create text layer for text selection mapping override
-                    const textLayer = document.createElement('div');
-                    textLayer.className = 'textLayer';
-                    pageWrapper.appendChild(textLayer);
-                    
-                    const textContent = await page.getTextContent();
-                    
-                    // Render text content over the page
-                    await pdfjsLib.renderTextLayer({
-                        textContent: textContent,
-                        container: textLayer,
-                        viewport: viewport,
-                        textDivs: []
-                    }).promise;
-                }
-                
-                // Hide loader
-                document.getElementById('loader').style.display = 'none';
-                
-                // Inform Android platform UI about loading finished successfully
-                if (window.AndroidPdfViewer && window.AndroidPdfViewer.onPdfLoaded) {
-                    window.AndroidPdfViewer.onPdfLoaded(pdf.numPages);
-                }
-            } catch (error) {
-                console.error("PDF.js Loader Error: ", error);
-                document.getElementById('loader').innerHTML = '❌ فشل في عرض الملف: ' + error.message;
-                if (window.AndroidPdfViewer && window.AndroidPdfViewer.onError) {
-                    window.AndroidPdfViewer.onError(error.message);
-                }
-            }
-        }
+        function renderPage(pdf, pageNum, container) {
+            pdf.getPage(pageNum).then(function(page) {
+                const pageContainer = document.createElement('div');
+                pageContainer.className = 'page-container';
+                container.appendChild(pageContainer);
 
-        // Auto trigger file retrieval from exposed JavascriptInterface when DOM is ready
-        document.addEventListener("DOMContentLoaded", () => {
-            const urlParams = new URLSearchParams(window.location.search);
-            const fileUrl = urlParams.get('file');
-            if (fileUrl) {
-                loadPdfFromUrl(fileUrl);
-            } else if (window.AndroidPdfViewer && window.AndroidPdfViewer.getPdfBase64) {
-                const base64 = window.AndroidPdfViewer.getPdfBase64();
-                if (base64) {
-                    loadPdfFromBase64(base64);
-                } else {
-                    document.getElementById('loader').innerHTML = '⚠️ لا يوجد ملف لعرضه';
-                }
-            } else {
-                document.getElementById('loader').innerHTML = '⚠️ لا يوجد ملف لعرضه';
-            }
-        });
+                const canvas = document.createElement('canvas');
+                const context = canvas.getContext('2d');
+                pageContainer.appendChild(canvas);
+
+                // زيادة الـ Scale إلى 2.0 للحصول على جودة خارقة تمنع البكسلة تماماً عند عمل زووم
+                const viewport = page.getViewport({ scale: 2.0 });
+                
+                const outputScale = window.devicePixelRatio || 1;
+                canvas.width = Math.floor(viewport.width * outputScale);
+                canvas.height = Math.floor(viewport.height * outputScale);
+                
+                // ملاءمة حجم العرض والارتفاع انسيابياً مع الشاشة
+                pageContainer.style.width = "95%";
+                pageContainer.style.maxWidth = Math.floor(viewport.width / 2) + "px";
+                
+                const transform = outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : null;
+
+                const renderContext = {
+                    canvasContext: context,
+                    transform: transform,
+                    viewport: viewport
+                };
+                
+                page.render(renderContext).promise.then(function() {
+                    // بناء طبقة النصوص فوق الرسم بعد اكتماله
+                    const textLayerDiv = document.createElement('div');
+                    textLayerDiv.className = 'textLayer';
+                    pageContainer.appendChild(textLayerDiv);
+
+                    // ضبط أبعاد الطبقة النصية لتتطابق رياضياً مع أماكن الحروف
+                    const containerWidth = pageContainer.clientWidth;
+                    const scaleFactor = containerWidth / viewport.width;
+                    
+                    textLayerDiv.style.transform = `scale(${scaleFactor})`;
+                    textLayerDiv.style.width = viewport.width + "px";
+                    textLayerDiv.style.height = viewport.height + "px";
+
+                    page.getTextContent().then(function(textContent) {
+                        pdfjsLib.renderTextLayer({
+                            textContent: textContent,
+                            container: textLayerDiv,
+                            viewport: viewport,
+                            textDivs: []
+                        });
+                    });
+                });
+            });
+        }
     </script>
 </body>
 </html>
