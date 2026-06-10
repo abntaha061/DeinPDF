@@ -33,7 +33,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 
-// دالة سحرية لاستخراج اسم الملف الحقيقي ومسح كلمة document
 fun getCleanFileName(context: Context, uri: Uri): String {
     var result = "ملف PDF"
     if (uri.scheme == "content") {
@@ -125,7 +124,7 @@ fun ReaderScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
+                .padding(top = paddingValues.calculateTopPadding())
                 .background(Color(0xFF0B0F19))
         ) {
             when {
@@ -173,14 +172,12 @@ fun ReaderScreen(
                                 @Suppress("DEPRECATION")
                                 settings.allowUniversalAccessFromFileURLs = true
                                 
-                                // تفعيل ميزة التكبير بالإصبعين الاحترافية للشاشة بالكامل
                                 settings.setSupportZoom(true)
                                 settings.builtInZoomControls = true
                                 settings.displayZoomControls = false
                                 
-                                // جعل محتوى الويب يأخذ حجم الشاشة العريضة بالكامل ليتصرف كأيقونة حرة للتكبير
-                                settings.useWideViewPort = true
-                                settings.loadWithOverviewMode = true
+                                settings.useWideViewPort = false
+                                settings.loadWithOverviewMode = false
                                 
                                 setBackgroundColor(0xFF0B0F19.toInt())
 
@@ -198,7 +195,6 @@ fun ReaderScreen(
                                     @JavascriptInterface
                                     fun onLinkIntercepted(url: String) {
                                         (ctx as? Activity)?.runOnUiThread {
-                                            // 1. تشغيل النطق الفوري للألمانية
                                             if (url.contains("translate_tts", ignoreCase = true) || url.endsWith(".mp3", ignoreCase = true)) {
                                                 Toast.makeText(ctx, "🎧 جاري النطق بالألمانية...", Toast.LENGTH_SHORT).show()
                                                 try {
@@ -223,7 +219,6 @@ fun ReaderScreen(
                                                     e.printStackTrace()
                                                 }
                                             }
-                                            // 2. الطيران لمتصفح كروم الخارجي لفتح Arabdict
                                             else if (url.startsWith("http://", ignoreCase = true) || url.startsWith("https://", ignoreCase = true)) {
                                                 try {
                                                     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
