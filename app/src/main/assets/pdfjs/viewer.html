@@ -1,59 +1,39 @@
 <!DOCTYPE html>
-<html lang="ar">
+<html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-    <title>PurePDF Viewer</title>
     <script src="pdf.min.js"></script>
     <style>
         html, body {
             margin: 0;
             padding: 0;
-            background-color: #0B0F19; /* نفس ثيم تطبيقك الداكن */
+            background-color: #0B0F19;
             width: 100%;
-            height: 100%;
-            overflow-x: hidden;
         }
         #viewer-container {
-            width: 100%;
             display: flex;
             flex-direction: column;
             align-items: center;
             padding: 0;
             margin: 0;
         }
-        .page-block {
+        .page-container {
             position: relative;
-            width: 100%; /* شاشة كاملة متجاوبة */
-            margin-bottom: 4px; /* فواصل صغيرة واحترافية مثل WPS */
-            background-color: #ffffff;
-            box-sizing: border-box;
+            background-color: white;
+            margin-bottom: 8px; /* فواصل صغيرة واحترافية مثل WPS */
+            box-shadow: 0 4px 8px rgba(0,0,0,0.5);
+            display: inline-block;
         }
         canvas {
             display: block;
-            width: 100% !important;
-            height: auto !important;
         }
-        /* طبقة النصوص والروابط التفاعلية */
-        .textLayer {
+        /* طبقة الروابط التفاعلية المخصصة */
+        .custom-link {
             position: absolute;
-            left: 0; top: 0; right: 0; bottom: 0;
-            overflow: hidden;
-            opacity: 1;
-            line-height: 1.0;
-        }
-        .textLayer span {
-            color: transparent; /* شفافة لتظهر طباعة الـ PDF الأصلية تحتها */
-            position: absolute;
-            white-space: pre;
-            cursor: text;
-            transform-origin: 0% 0%;
-        }
-        .textLayer a {
-            position: absolute;
-            display: block;
             background: transparent;
             cursor: pointer;
+            border: none;
         }
     </style>
 </head>
@@ -63,72 +43,80 @@
     <script>
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf.worker.min.js';
 
-        // جلب ملف الـ PDF كـ Base64 من تطبيق الأندرويد لضمان تخطي الحماية والأمان
-        const base64Buffer = AndroidPdfBridge.getPdfBase64();
+        // سحب بايتات الملف المشفرة من الكوتلن لكسر الحظر الأمني
+        const base64Data = AndroidPdfBridge.getPdfBase64();
         
-        if (base64Buffer) {
-            const binaryString = window.atob(base64Buffer);
-            const len = binaryString.length;
-            const bytes = new Uint8Array(len);
-            for (let i = 0; i < len; i++) {
-                bytes[i] = binaryString.charCodeAt(i);
+        if (base64Data) {
+            const raw = window.atob(base64Data);
+            const array = new Uint8Array(len = raw.length);
+            for(let i = 0; i < len; i++) {
+                array[i] = raw.charCodeAt(i);
             }
 
-            // فتح المستند
-            pdfjsLib.getDocument({ data: bytes }).promise.then(function(pdf) {
+            // فتح المستند بالكامل
+            pdfjsLib.getDocument({data: array}).promise.then(function(pdf) {
                 const container = document.getElementById('viewer-container');
                 for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-                    renderPdfPage(pdf, pageNum, container);
+                    renderPage(pdf, pageNum, container);
                 }
-            }).catch(function(error) {
-                console.error("Error loading PDF: " + error);
             });
         }
 
-        function renderPdfPage(pdf, pageNum, container) {
+        function renderPage(pdf, pageNum, container) {
             pdf.getPage(pageNum).then(function(page) {
-                const pageBlock = document.createElement('div');
-                pageBlock.className = 'page-block';
-                container.appendChild(pageBlock);
+                const pageContainer = document.createElement('div');
+                pageContainer.className = 'page-container';
+                container.appendChild(pageContainer);
 
                 const canvas = document.createElement('canvas');
                 const context = canvas.getContext('2d');
-                pageBlock.appendChild(canvas);
+                pageContainer.appendChild(canvas);
 
-                // رسم بجودة عالية جداً (Scale 2.0) لمنع البكسلة نهائياً عند الزووم
-                const viewport = page.getViewport({ scale: 2.0 });
+                // رسم المستند بحجمه الأصلي والكامل (Scale 1.5 يعطي أبعاد ممتازة للشاشة)
+                const viewport = page.getViewport({ scale: 1.5 });
                 canvas.width = viewport.width;
                 canvas.height = viewport.height;
+                
+                // إجبار الحاوية على أخذ أبعاد الصفحة بالملي لمنع الانكماش
+                pageContainer.style.width = viewport.width + 'px';
+                pageContainer.style.height = viewport.height + 'px';
 
                 const renderContext = {
                     canvasContext: context,
                     viewport: viewport
                 };
-
+                
                 page.render(renderContext).promise.then(function() {
-                    // إنشاء طبقة النصوص والروابط فوق الصفحة
-                    const textLayerDiv = document.createElement('div');
-                    textLayerDiv.className = 'textLayer';
-                    pageBlock.appendChild(textLayerDiv);
-
-                    page.getTextContent().then(function(textContent) {
-                        pdfjsLib.renderTextLayer({
-                            textContent: textContent,
-                            container: textLayerDiv,
-                            viewport: viewport,
-                            textDivs: []
+                    // [السر البرمجي 🛡️]: صيد الروابط من الـ Annotation Layer ورسمها فوق الصفحة
+                    page.getAnnotations().then(function(annotations) {
+                        annotations.forEach(function(annot) {
+                            if (annot.url) {
+                                const linkBtn = document.createElement('a');
+                                linkBtn.className = 'custom-link';
+                                linkBtn.href = annot.url;
+                                
+                                // تحويل إحداثيات الـ PDF الرياضية إلى أبعاد بكسل مطابقة للشاشة
+                                const rect = viewport.convertToViewportRectangle(annot.rect);
+                                
+                                linkBtn.style.left = Math.min(rect[0], rect[2]) + 'px';
+                                linkBtn.style.top = Math.min(rect[1], rect[3]) + 'px';
+                                linkBtn.style.width = Math.abs(rect[2] - rect[0]) + 'px';
+                                linkBtn.style.height = Math.abs(rect[3] - rect[1]) + 'px';
+                                
+                                pageContainer.appendChild(linkBtn);
+                            }
                         });
                     });
                 });
             });
         }
 
-        // الكود السحري: التقاط أي ضغطة على رابط (سواء Arabdict أو صوت) وتمريرها فوراً للأندرويد
+        // إرسال الرابط فوراً عند النقر عليه إلى الكوتلن لمنع المتصفح الداخلي من التخريف
         document.addEventListener('click', function(e) {
-            const anchor = e.target.closest('a');
-            if (anchor && anchor.href) {
-                e.preventDefault(); // منع المتصفح الافتراضي الداخلي من التصرف بالرابط
-                AndroidPdfBridge.onLinkIntercepted(anchor.href); // إرساله فوراً إلى كود كوتلن
+            const targetLink = e.target.closest('.custom-link');
+            if (targetLink && targetLink.href) {
+                e.preventDefault();
+                AndroidPdfBridge.onLinkIntercepted(targetLink.href);
             }
         });
     </script>
