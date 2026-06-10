@@ -15,20 +15,16 @@ import android.webkit.WebChromeClient
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.material3.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -56,7 +52,6 @@ fun getCleanFileName(context: Context, uri: Uri): String {
     return result.replace("document:", "").replace(".pdf", "", ignoreCase = true)
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReaderScreen(
     pdfUri: Uri,
@@ -68,180 +63,148 @@ fun ReaderScreen(
     var tempFilePath by remember { mutableStateOf<String?>(null) }
     var copyError by remember { mutableStateOf<String?>(null) }
     var isPreparingFile by remember { mutableStateOf(true) }
-    val cleanFileName = remember(pdfUri) { getCleanFileName(context, pdfUri) }
 
     LaunchedEffect(pdfUri) {
         withContext(Dispatchers.IO) {
             try {
                 isPreparingFile = true
                 val destinationFile = File(context.cacheDir, "temp_viewer.pdf")
-                if (destinationFile.exists()) {
-                    destinationFile.delete()
-                }
-                context.contentResolver.openInputStream(pdfUri)?.use { inputStream ->
-                    destinationFile.outputStream().use { outputStream ->
-                        inputStream.copyTo(outputStream)
+                if (destinationFile.exists()) destinationFile.delete()
+                context.contentResolver.openInputStream(pdfUri)?.use { input ->
+                    destinationFile.outputStream().use { output ->
+                        input.copyTo(output)
                     }
                 }
                 tempFilePath = destinationFile.absolutePath
                 copyError = null
             } catch (e: Exception) {
                 copyError = e.localizedMessage
-                e.printStackTrace()
             } finally {
                 isPreparingFile = false
             }
         }
     }
 
-    Scaffold(
-        containerColor = Color(0xFF0B0F19),
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = cleanFileName,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "رجوع",
-                            tint = Color.White
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF111827))
-            )
-        }
-    ) { paddingValues ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(top = paddingValues.calculateTopPadding())
-                .background(Color(0xFF0B0F19))
-        ) {
-            when {
-                isPreparingFile -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            CircularProgressIndicator(color = Color(0xFF2196F3))
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                text = "جاري تحميل وتجهيز الملف...",
-                                color = Color.White,
-                                fontSize = 15.sp,
-                                textAlign = TextAlign.Center
-                            )
-                        }
-                    }
-                }
-                copyError != null -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize().padding(24.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF0B0F19))
+    ) {
+        when {
+            isPreparingFile -> {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(color = Color(0xFF2196F3))
+                        Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = "❌ حدث خطأ أثناء تحميل الملف:\n$copyError",
-                            color = Color.Red,
-                            fontSize = 16.sp,
+                            text = "جاري تحميل وتجهيز الملف...",
+                            color = Color.White,
+                            fontSize = 15.sp,
                             textAlign = TextAlign.Center
                         )
                     }
                 }
-                tempFilePath != null -> {
-                    AndroidView(
-                        factory = { ctx ->
-                            WebView(ctx).apply {
-                                settings.javaScriptEnabled = true
-                                settings.domStorageEnabled = true
-                                settings.allowFileAccess = true
-                                settings.allowContentAccess = true
-                                
-                                @Suppress("DEPRECATION")
-                                settings.allowFileAccessFromFileURLs = true
-                                @Suppress("DEPRECATION")
-                                settings.allowUniversalAccessFromFileURLs = true
-                                
-                                settings.setSupportZoom(true)
-                                settings.builtInZoomControls = true
-                                settings.displayZoomControls = false
-                                
-                                settings.useWideViewPort = false
-                                settings.loadWithOverviewMode = false
-                                
-                                setBackgroundColor(0xFF0B0F19.toInt())
+            }
+            copyError != null -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "❌ حدث خطأ أثناء تحميل الملف:\n$copyError",
+                        color = Color.Red,
+                        fontSize = 16.sp,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+            tempFilePath != null -> {
+                AndroidView(
+                    factory = { ctx ->
+                        WebView(ctx).apply {
+                            settings.javaScriptEnabled = true
+                            settings.domStorageEnabled = true
+                            settings.allowFileAccess = true
+                            settings.allowContentAccess = true
 
-                                addJavascriptInterface(object {
-                                    @JavascriptInterface
-                                    fun getPdfBase64(): String {
-                                        return try {
-                                            val file = File(tempFilePath ?: return "")
-                                            if (file.exists()) {
-                                                Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
-                                            } else ""
-                                        } catch (e: Exception) { "" }
-                                    }
+                            @Suppress("DEPRECATION")
+                            settings.allowFileAccessFromFileURLs = true
+                            @Suppress("DEPRECATION")
+                            settings.allowUniversalAccessFromFileURLs = true
 
-                                    @JavascriptInterface
-                                    fun onLinkIntercepted(url: String) {
-                                        (ctx as? Activity)?.runOnUiThread {
-                                            if (url.contains("translate_tts", ignoreCase = true) || url.endsWith(".mp3", ignoreCase = true)) {
-                                                Toast.makeText(ctx, "🎧 جاري النطق بالألمانية...", Toast.LENGTH_SHORT).show()
-                                                try {
-                                                    MediaPlayer().apply {
-                                                        setAudioAttributes(
-                                                            AudioAttributes.Builder()
-                                                                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                                                                .setUsage(AudioAttributes.USAGE_MEDIA)
-                                                                .build()
-                                                        )
-                                                        setDataSource(url)
-                                                        setOnPreparedListener { mp -> mp.start() }
-                                                        setOnErrorListener { mp, _, _ ->
-                                                            Toast.makeText(ctx, "فشل النطق", Toast.LENGTH_SHORT).show()
-                                                            mp.release()
-                                                            true
-                                                        }
-                                                        setOnCompletionListener { mp -> mp.release() }
-                                                        prepareAsync()
+                            settings.setSupportZoom(true)
+                            settings.builtInZoomControls = true
+                            settings.displayZoomControls = false
+
+                            settings.useWideViewPort = false
+                            settings.loadWithOverviewMode = false
+
+                            setBackgroundColor(0xFF0B0F19.toInt())
+
+                            addJavascriptInterface(object {
+                                @JavascriptInterface
+                                fun getPdfBase64(): String {
+                                    return try {
+                                        val file = File(tempFilePath ?: return "")
+                                        if (file.exists()) {
+                                            Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
+                                        } else ""
+                                    } catch (e: Exception) { "" }
+                                }
+
+                                @JavascriptInterface
+                                fun onLinkIntercepted(url: String) {
+                                    (ctx as? Activity)?.runOnUiThread {
+                                        if (url.contains("translate_tts", ignoreCase = true) || url.endsWith(".mp3", ignoreCase = true)) {
+                                            Toast.makeText(ctx, "🎧 جاري النطق بالألمانية...", Toast.LENGTH_SHORT).show()
+                                            try {
+                                                MediaPlayer().apply {
+                                                    setAudioAttributes(
+                                                        AudioAttributes.Builder()
+                                                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                                                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                                                            .build()
+                                                    )
+                                                    setDataSource(url)
+                                                    setOnPreparedListener { mp -> mp.start() }
+                                                    setOnErrorListener { mp, _, _ ->
+                                                        Toast.makeText(ctx, "فشل النطق", Toast.LENGTH_SHORT).show()
+                                                        mp.release()
+                                                        true
                                                     }
-                                                } catch (e: Exception) {
-                                                    e.printStackTrace()
+                                                    setOnCompletionListener { mp -> mp.release() }
+                                                    prepareAsync()
                                                 }
+                                            } catch (e: Exception) {
+                                                e.printStackTrace()
                                             }
-                                            else if (url.startsWith("http://", ignoreCase = true) || url.startsWith("https://", ignoreCase = true)) {
-                                                try {
-                                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-                                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                                    }
-                                                    ctx.startActivity(intent)
-                                                } catch (e: Exception) {
-                                                    Toast.makeText(ctx, "لا يمكن فتح القاموس", Toast.LENGTH_SHORT).show()
+                                        } else if (url.startsWith("http://", ignoreCase = true) || url.startsWith("https://", ignoreCase = true)) {
+                                            try {
+                                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                                 }
+                                                ctx.startActivity(intent)
+                                            } catch (e: Exception) {
+                                                Toast.makeText(ctx, "لا يمكن فتح القاموس", Toast.LENGTH_SHORT).show()
                                             }
                                         }
                                     }
-                                }, "AndroidPdfBridge")
+                                }
+                            }, "AndroidPdfBridge")
 
-                                webChromeClient = WebChromeClient()
-                                webViewClient = WebViewClient()
+                            webChromeClient = WebChromeClient()
+                            webViewClient = WebViewClient()
 
-                                loadUrl("file:///android_asset/pdfjs/viewer.html")
-                            }
-                        },
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
+                            loadUrl("file:///android_asset/pdfjs/viewer.html")
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
             }
         }
     }
