@@ -195,15 +195,96 @@
             }
         }
 
+        async function loadPdfFromUrl(url) {
+            try {
+                // Remove loader or show updates
+                document.getElementById('loader').style.display = 'flex';
+                
+                const loadingTask = pdfjsLib.getDocument(url);
+                const pdf = await loadingTask.promise;
+                const container = document.getElementById('viewer-container');
+                container.innerHTML = ''; // clear initial HTML content
+                
+                // Get page rendering configuration based on screen width
+                const screenWidth = window.innerWidth;
+                
+                // Iteratively render each page scrollably
+                for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                    const page = await pdf.getPage(pageNum);
+                    
+                    // Match viewport to screen size
+                    const unscaledViewport = page.getViewport({ scale: 1.0 });
+                    // Provide standard 10px padding on left/right for margins
+                    const targetWidth = screenWidth - 20; 
+                    const scale = targetWidth / unscaledViewport.width;
+                    const viewport = page.getViewport({ scale: scale });
+                    
+                    // Page card wrapper
+                    const pageWrapper = document.createElement('div');
+                    pageWrapper.className = 'page-wrapper';
+                    pageWrapper.style.width = targetWidth + 'px';
+                    pageWrapper.style.height = viewport.height + 'px';
+                    container.appendChild(pageWrapper);
+                    
+                    // Render canvas background
+                    const canvas = document.createElement('canvas');
+                    const context = canvas.getContext('2d');
+                    canvas.width = viewport.width;
+                    canvas.height = viewport.height;
+                    pageWrapper.appendChild(canvas);
+                    
+                    await page.render({
+                        canvasContext: context,
+                        viewport: viewport
+                    }).promise;
+                    
+                    // Create text layer for text selection mapping override
+                    const textLayer = document.createElement('div');
+                    textLayer.className = 'textLayer';
+                    pageWrapper.appendChild(textLayer);
+                    
+                    const textContent = await page.getTextContent();
+                    
+                    // Render text content over the page
+                    await pdfjsLib.renderTextLayer({
+                        textContent: textContent,
+                        container: textLayer,
+                        viewport: viewport,
+                        textDivs: []
+                    }).promise;
+                }
+                
+                // Hide loader
+                document.getElementById('loader').style.display = 'none';
+                
+                // Inform Android platform UI about loading finished successfully
+                if (window.AndroidPdfViewer && window.AndroidPdfViewer.onPdfLoaded) {
+                    window.AndroidPdfViewer.onPdfLoaded(pdf.numPages);
+                }
+            } catch (error) {
+                console.error("PDF.js Loader Error: ", error);
+                document.getElementById('loader').innerHTML = '❌ فشل في عرض الملف: ' + error.message;
+                if (window.AndroidPdfViewer && window.AndroidPdfViewer.onError) {
+                    window.AndroidPdfViewer.onError(error.message);
+                }
+            }
+        }
+
         // Auto trigger file retrieval from exposed JavascriptInterface when DOM is ready
         document.addEventListener("DOMContentLoaded", () => {
-            if (window.AndroidPdfViewer && window.AndroidPdfViewer.getPdfBase64) {
+            const urlParams = new URLSearchParams(window.location.search);
+            const fileUrl = urlParams.get('file');
+            if (fileUrl) {
+                loadPdfFromUrl(fileUrl);
+            } else if (window.AndroidPdfViewer && window.AndroidPdfViewer.getPdfBase64) {
                 const base64 = window.AndroidPdfViewer.getPdfBase64();
                 if (base64) {
                     loadPdfFromBase64(base64);
                 } else {
                     document.getElementById('loader').innerHTML = '⚠️ لا يوجد ملف لعرضه';
                 }
+            } else {
+                document.getElementById('loader').innerHTML = '⚠️ لا يوجد ملف لعرضه';
             }
         });
     </script>
