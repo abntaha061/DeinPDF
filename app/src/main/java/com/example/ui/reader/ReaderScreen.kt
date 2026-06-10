@@ -1,11 +1,14 @@
 package com.example.ui.reader
 
-import android.app.Activity
-import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.net.Uri
+import android.util.Base64
+import android.webkit.JavascriptInterface
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.webkit.WebChromeClient
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -41,7 +44,6 @@ fun ReaderScreen(
     var copyError by remember { mutableStateOf<String?>(null) }
     var isPreparingFile by remember { mutableStateOf(true) }
 
-    // Start background file preparation
     LaunchedEffect(pdfUri) {
         withContext(Dispatchers.IO) {
             try {
@@ -57,6 +59,9 @@ fun ReaderScreen(
                 }
                 tempFilePath = destinationFile.absolutePath
                 copyError = null
+            } catch (e: Exception) {
+                copyError = e.localizedMessage
+                e.printStackTrace()
             } catch (e: Exception) {
                 copyError = e.localizedMessage
                 e.printStackTrace()
@@ -145,36 +150,48 @@ fun ReaderScreen(
                 tempFilePath != null -> {
                     AndroidView(
                         factory = { ctx ->
-                            android.webkit.WebView(ctx).apply {
-                                // Enable standard JavaScript and file loading
+                            WebView(ctx).apply {
                                 settings.javaScriptEnabled = true
                                 settings.domStorageEnabled = true
                                 settings.allowFileAccess = true
                                 settings.allowContentAccess = true
                                 
-                                // Enable security bypasses to load file:// PDFs inside assets/viewer.html
                                 @Suppress("DEPRECATION")
                                 settings.allowFileAccessFromFileURLs = true
                                 @Suppress("DEPRECATION")
                                 settings.allowUniversalAccessFromFileURLs = true
                                 
-                                // Support Pinch-to-zoom and disable custom buttons
+                                // تفعيل الزووم السلس بالإصبعين
                                 settings.setSupportZoom(true)
                                 settings.builtInZoomControls = true
                                 settings.displayZoomControls = false
                                 
-                                // Fit screens seamlessly
                                 settings.useWideViewPort = true
                                 settings.loadWithOverviewMode = true
                                 
                                 setBackgroundColor(0xFF0B0F19.toInt())
                                 
-                                webChromeClient = android.webkit.WebChromeClient()
-                                webViewClient = object : android.webkit.WebViewClient() {
+                                // الجسر البرمجي الآمن لنقل الملف بدون مشاكل حظر أمني
+                                addJavascriptInterface(object {
+                                    @JavascriptInterface
+                                    fun getPdfBase64(): String {
+                                        return try {
+                                            val file = File(tempFilePath ?: return "")
+                                            if (file.exists()) {
+                                                Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
+                                            } else ""
+                                        } catch (e: Exception) {
+                                            ""
+                                        }
+                                    }
+                                }, "AndroidPdfBridge")
+                                
+                                webChromeClient = WebChromeClient()
+                                webViewClient = object : WebViewClient() {
                                     private fun handlePdfUrl(url: String?): Boolean {
                                         if (url == null) return false
                                         
-                                        // 1. Audio Link Handling (translate_tts or .mp3)
+                                        // 1. تشغيل الروابط الصوتية في الخلفية
                                         if (url.contains("translate_tts", ignoreCase = true) || url.endsWith(".mp3", ignoreCase = true)) {
                                             Toast.makeText(ctx, "جاري تشغيل الصوت...", Toast.LENGTH_SHORT).show()
                                             try {
@@ -186,63 +203,49 @@ fun ReaderScreen(
                                                             .build()
                                                     )
                                                     setDataSource(url)
-                                                    setOnPreparedListener { mp ->
-                                                        mp.start()
-                                                    }
+                                                    setOnPreparedListener { mp -> mp.start() }
                                                     setOnErrorListener { mp, _, _ ->
                                                         Toast.makeText(ctx, "فشل في تشغيل الصوت", Toast.LENGTH_SHORT).show()
                                                         mp.release()
                                                         true
                                                     }
-                                                    setOnCompletionListener { mp ->
-                                                        mp.release()
-                                                    }
+                                                    setOnCompletionListener { mp -> mp.release() }
                                                     prepareAsync()
                                                 }
                                             } catch (e: Exception) {
                                                 e.printStackTrace()
-                                                Toast.makeText(ctx, "خطأ في تشغيل الصوت: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
                                             }
                                             return true
                                         }
                                         
-                                        // 2. Web/Dictionary Link Handling
+                                        // 2. فتح قواميس الويب والروابط الخارجية في المتصفح
                                         if (url.startsWith("http://", ignoreCase = true) || url.startsWith("https://", ignoreCase = true)) {
                                             try {
                                                 val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
                                                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                                 }
                                                 ctx.startActivity(intent)
-                                                Toast.makeText(ctx, "جاري فتح الرابط في المتصفح...", Toast.LENGTH_SHORT).show()
+                                                Toast.makeText(ctx, "جاري فتح القاموس...", Toast.LENGTH_SHORT).show()
                                             } catch (e: Exception) {
-                                                e.printStackTrace()
-                                                Toast.makeText(ctx, "لا يمكن فتح الرابط: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                                                Toast.makeText(ctx, "لا يمكن فتح الرابط", Toast.LENGTH_SHORT).show()
                                             }
                                             return true
                                         }
-                                        
                                         return false
                                     }
 
-                                    override fun shouldOverrideUrlLoading(
-                                        view: android.webkit.WebView?,
-                                        request: android.webkit.WebResourceRequest?
-                                    ): Boolean {
+                                    override fun shouldOverrideUrlLoading(view: WebView?, request: android.webkit.WebResourceRequest?): Boolean {
                                         return handlePdfUrl(request?.url?.toString())
                                     }
 
                                     @Deprecated("Deprecated in Java")
-                                    override fun shouldOverrideUrlLoading(
-                                        view: android.webkit.WebView?,
-                                        url: String?
-                                    ): Boolean {
+                                    override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
                                         return handlePdfUrl(url)
                                     }
                                 }
                                 
-                                // Load HTML passing temp file path as the 'file' query parameter
-                                val loadUrl = "file:///android_asset/pdfjs/viewer.html?file=file://$tempFilePath"
-                                loadUrl(loadUrl)
+                                // تحميل عارض الويب مباشرة
+                                loadUrl("file:///android_asset/pdfjs/viewer.html")
                             }
                         },
                         modifier = Modifier.fillMaxSize()
