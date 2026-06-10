@@ -1,5 +1,6 @@
 package com.example.ui.reader
 
+import android.app.Activity
 import android.content.Intent
 import android.media.AudioAttributes
 import android.media.MediaPlayer
@@ -44,6 +45,7 @@ fun ReaderScreen(
     var copyError by remember { mutableStateOf<String?>(null) }
     var isPreparingFile by remember { mutableStateOf(true) }
 
+    // تجهيز الملف في الخلفية بشكل آمن
     LaunchedEffect(pdfUri) {
         withContext(Dispatchers.IO) {
             try {
@@ -62,9 +64,6 @@ fun ReaderScreen(
             } catch (e: Exception) {
                 copyError = e.localizedMessage
                 e.printStackTrace()
-            } catch (e: Exception) {
-                copyError = e.localizedMessage
-                e.printStackTrace()
             } finally {
                 isPreparingFile = false
             }
@@ -72,7 +71,7 @@ fun ReaderScreen(
     }
 
     Scaffold(
-        containerColor = DarkBg,
+        containerColor = Color(0xFF0B0F19),
         topBar = {
             TopAppBar(
                 title = {
@@ -95,7 +94,7 @@ fun ReaderScreen(
                         )
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkSurface)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF111827))
             )
         }
     ) { paddingValues ->
@@ -125,9 +124,7 @@ fun ReaderScreen(
                 }
                 copyError != null -> {
                     Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(24.dp),
+                        modifier = Modifier.fillMaxSize().padding(24.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -137,13 +134,6 @@ fun ReaderScreen(
                                 fontSize = 16.sp,
                                 textAlign = TextAlign.Center
                             )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Button(
-                                onClick = onBack,
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2196F3))
-                            ) {
-                                Text("العودة للقائمة الرئيسية")
-                            }
                         }
                     }
                 }
@@ -161,17 +151,16 @@ fun ReaderScreen(
                                 @Suppress("DEPRECATION")
                                 settings.allowUniversalAccessFromFileURLs = true
                                 
-                                // تفعيل الزووم السلس بالإصبعين
+                                // تفعيل التكبير السلس والأصيل للشاشة بالكامل
                                 settings.setSupportZoom(true)
                                 settings.builtInZoomControls = true
                                 settings.displayZoomControls = false
-                                
                                 settings.useWideViewPort = true
                                 settings.loadWithOverviewMode = true
                                 
                                 setBackgroundColor(0xFF0B0F19.toInt())
-                                
-                                // الجسر البرمجي الآمن لنقل الملف بدون مشاكل حظر أمني
+
+                                // الجسر البرمجي الذكي لالتقاط الملف والروابط
                                 addJavascriptInterface(object {
                                     @JavascriptInterface
                                     fun getPdfBase64(): String {
@@ -180,71 +169,58 @@ fun ReaderScreen(
                                             if (file.exists()) {
                                                 Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
                                             } else ""
-                                        } catch (e: Exception) {
-                                            ""
+                                        } catch (e: Exception) { "" }
+                                    }
+
+                                    @JavascriptInterface
+                                    fun onLinkIntercepted(url: String) {
+                                        // تشغيل العمليات على خيط الواجهة الرئيسي للأندرويد تجنباً للانهيار
+                                        (ctx as? Activity)?.runOnUiThread {
+                                            // 1. معالجة روابط الصوت والنطق الخلفي
+                                            if (url.contains("translate_tts", ignoreCase = true) || url.endsWith(".mp3", ignoreCase = true)) {
+                                                Toast.makeText(ctx, "🎧 جاري النطق بالألمانية...", Toast.LENGTH_SHORT).show()
+                                                try {
+                                                    MediaPlayer().apply {
+                                                        setAudioAttributes(
+                                                            AudioAttributes.Builder()
+                                                                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                                                                .setUsage(AudioAttributes.USAGE_MEDIA)
+                                                                .build()
+                                                        )
+                                                        setDataSource(url)
+                                                        setOnPreparedListener { mp -> mp.start() }
+                                                        setOnErrorListener { mp, _, _ ->
+                                                            Toast.makeText(ctx, "فشل النطق التلقائي", Toast.LENGTH_SHORT).show()
+                                                            mp.release()
+                                                            true
+                                                        }
+                                                        setOnCompletionListener { mp -> mp.release() }
+                                                        prepareAsync()
+                                                    }
+                                                } catch (e: Exception) {
+                                                    e.printStackTrace()
+                                                }
+                                            }
+                                            // 2. معالجة روابط الويب (Arabdict) لفتحها في المتصفح الخارجي شاملاً
+                                            else if (url.startsWith("http://", ignoreCase = true) || url.startsWith("https://", ignoreCase = true)) {
+                                                try {
+                                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                    }
+                                                    ctx.startActivity(intent)
+                                                    Toast.makeText(ctx, "🌐 جاري فتح Arabdict...", Toast.LENGTH_SHORT).show()
+                                                } catch (e: Exception) {
+                                                    Toast.makeText(ctx, "عذراً، لا يمكن فتح الرابط", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
                                         }
                                     }
                                 }, "AndroidPdfBridge")
-                                
+
                                 webChromeClient = WebChromeClient()
-                                webViewClient = object : WebViewClient() {
-                                    private fun handlePdfUrl(url: String?): Boolean {
-                                        if (url == null) return false
-                                        
-                                        // 1. تشغيل الروابط الصوتية في الخلفية
-                                        if (url.contains("translate_tts", ignoreCase = true) || url.endsWith(".mp3", ignoreCase = true)) {
-                                            Toast.makeText(ctx, "جاري تشغيل الصوت...", Toast.LENGTH_SHORT).show()
-                                            try {
-                                                MediaPlayer().apply {
-                                                    setAudioAttributes(
-                                                        AudioAttributes.Builder()
-                                                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                                                            .setUsage(AudioAttributes.USAGE_MEDIA)
-                                                            .build()
-                                                    )
-                                                    setDataSource(url)
-                                                    setOnPreparedListener { mp -> mp.start() }
-                                                    setOnErrorListener { mp, _, _ ->
-                                                        Toast.makeText(ctx, "فشل في تشغيل الصوت", Toast.LENGTH_SHORT).show()
-                                                        mp.release()
-                                                        true
-                                                    }
-                                                    setOnCompletionListener { mp -> mp.release() }
-                                                    prepareAsync()
-                                                }
-                                            } catch (e: Exception) {
-                                                e.printStackTrace()
-                                            }
-                                            return true
-                                        }
-                                        
-                                        // 2. فتح قواميس الويب والروابط الخارجية في المتصفح
-                                        if (url.startsWith("http://", ignoreCase = true) || url.startsWith("https://", ignoreCase = true)) {
-                                            try {
-                                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-                                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                                }
-                                                ctx.startActivity(intent)
-                                                Toast.makeText(ctx, "جاري فتح القاموس...", Toast.LENGTH_SHORT).show()
-                                            } catch (e: Exception) {
-                                                Toast.makeText(ctx, "لا يمكن فتح الرابط", Toast.LENGTH_SHORT).show()
-                                            }
-                                            return true
-                                        }
-                                        return false
-                                    }
+                                webViewClient = WebViewClient()
 
-                                    override fun shouldOverrideUrlLoading(view: WebView?, request: android.webkit.WebResourceRequest?): Boolean {
-                                        return handlePdfUrl(request?.url?.toString())
-                                    }
-
-                                    @Deprecated("Deprecated in Java")
-                                    override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
-                                        return handlePdfUrl(url)
-                                    }
-                                }
-                                
-                                // تحميل عارض الويب مباشرة
+                                // تحميل الواجهة النظيفة مباشرة
                                 loadUrl("file:///android_asset/pdfjs/viewer.html")
                             }
                         },
