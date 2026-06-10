@@ -28,11 +28,35 @@
         canvas {
             display: block;
         }
+        .textLayer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            overflow: hidden;
+            pointer-events: auto;
+            line-height: 1;
+        }
+        .textLayer span {
+            color: transparent;
+            position: absolute;
+            white-space: pre;
+            cursor: text;
+            transform-origin: 0% 0%;
+            user-select: text;
+            -webkit-user-select: text;
+        }
+        .textLayer ::selection {
+            background: rgba(0, 120, 255, 0.3);
+            color: transparent;
+        }
         .custom-link {
             position: absolute;
             background: transparent;
             cursor: pointer;
             border: none;
+            z-index: 10;
         }
     </style>
 </head>
@@ -70,36 +94,83 @@
                 pageContainer.appendChild(canvas);
 
                 const screenWidth = window.innerWidth;
+                const pixelRatio = window.devicePixelRatio || 2;
                 const baseViewport = page.getViewport({ scale: 1.0 });
-                const scale = screenWidth / baseViewport.width;
+                const scale = (screenWidth / baseViewport.width) * pixelRatio;
                 const viewport = page.getViewport({ scale: scale });
 
                 canvas.width = viewport.width;
                 canvas.height = viewport.height;
-                
-                pageContainer.style.width = viewport.width + 'px';
-                pageContainer.style.height = viewport.height + 'px';
+                canvas.style.width = (viewport.width / pixelRatio) + 'px';
+                canvas.style.height = (viewport.height / pixelRatio) + 'px';
+
+                pageContainer.style.width = (viewport.width / pixelRatio) + 'px';
+                pageContainer.style.height = (viewport.height / pixelRatio) + 'px';
 
                 const renderContext = {
                     canvasContext: context,
                     viewport: viewport
                 };
-                
+
                 page.render(renderContext).promise.then(function() {
+
+                    // Text Layer للتحديد والنسخ
+                    page.getTextContent().then(function(textContent) {
+                        const textLayerDiv = document.createElement('div');
+                        textLayerDiv.className = 'textLayer';
+                        pageContainer.appendChild(textLayerDiv);
+
+                        const displayScale = screenWidth / baseViewport.width;
+                        const displayViewport = page.getViewport({ scale: displayScale });
+
+                        textContent.items.forEach(function(item) {
+                            if (!item.str || item.str.trim() === '') return;
+
+                            const tx = pdfjsLib.Util.transform(
+                                displayViewport.transform,
+                                item.transform
+                            );
+
+                            const span = document.createElement('span');
+                            span.textContent = item.str;
+
+                            const angle = Math.atan2(tx[1], tx[0]);
+                            const fontSize = Math.sqrt(tx[2] * tx[2] + tx[3] * tx[3]);
+
+                            span.style.fontSize = fontSize + 'px';
+                            span.style.left = tx[4] + 'px';
+                            span.style.top = (tx[5] - fontSize) + 'px';
+
+                            if (angle !== 0) {
+                                span.style.transform = 'rotate(' + (-angle) + 'rad)';
+                            }
+
+                            const scaleX = item.width * displayScale / (item.str.length * fontSize * 0.6);
+                            if (scaleX !== 1 && !isNaN(scaleX) && scaleX > 0 && scaleX < 10) {
+                                span.style.transform = (span.style.transform || '') + ' scaleX(' + scaleX + ')';
+                            }
+
+                            textLayerDiv.appendChild(span);
+                        });
+                    });
+
+                    // Annotation Layer للروابط والنطق
                     page.getAnnotations().then(function(annotations) {
                         annotations.forEach(function(annot) {
                             if (annot.url) {
                                 const linkBtn = document.createElement('a');
                                 linkBtn.className = 'custom-link';
                                 linkBtn.href = annot.url;
-                                
-                                const rect = viewport.convertToViewportRectangle(annot.rect);
-                                
+
+                                const displayScale = screenWidth / baseViewport.width;
+                                const displayViewport = page.getViewport({ scale: displayScale });
+                                const rect = displayViewport.convertToViewportRectangle(annot.rect);
+
                                 linkBtn.style.left = Math.min(rect[0], rect[2]) + 'px';
                                 linkBtn.style.top = Math.min(rect[1], rect[3]) + 'px';
                                 linkBtn.style.width = Math.abs(rect[2] - rect[0]) + 'px';
                                 linkBtn.style.height = Math.abs(rect[3] - rect[1]) + 'px';
-                                
+
                                 pageContainer.appendChild(linkBtn);
                             }
                         });
