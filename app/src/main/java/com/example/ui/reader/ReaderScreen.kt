@@ -561,6 +561,9 @@ fun ReaderScreen(
                                         settings.databaseEnabled = true
                                         settings.useWideViewPort = true
                                         settings.loadWithOverviewMode = true
+                                        settings.setSupportZoom(true)
+                                        settings.builtInZoomControls = true
+                                        settings.displayZoomControls = false
                                         setBackgroundColor(0xFF0B0F19.toInt())
                                         
                                         webChromeClient = android.webkit.WebChromeClient()

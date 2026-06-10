@@ -5,76 +5,114 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-  <!-- ورقة مستند PDF البيضاء الأساسية -->
-  <path
-      android:fillColor="#FFFFFF"
-      android:pathData="M36,20 L60,20 L72,32 L72,78 L36,78 Z"/>
+    <!-- Overall scale group to keep everything inside the adaptive icon safe-zone -->
+    <group
+        android:scaleX="0.78"
+        android:scaleY="0.78"
+        android:pivotX="54"
+        android:pivotY="54">
 
-  <!-- الزاوية العلوية المطوية للمستند -->
-  <path
-      android:fillColor="#CFD8DC"
-      android:pathData="M60,20 L72,32 L60,32 Z"/>
+        <!-- 1. Fanned Document Sheets -->
+        <!-- Back Sheet (Rose-Pink) -->
+        <group android:rotation="-30" android:pivotX="53" android:pivotY="70">
+            <path
+                android:fillColor="#FF5A60"
+                android:pathData="M38,18 c-1,0 -2,1 -2,2 v42 c0,1 1,2 2,2 h30 c1,0 2,-1 2,-2 V20 c0,-1 -1,-2 -2,-2 Z" />
+        </group>
+        
+        <!-- Second Sheet (Orange) -->
+        <group android:rotation="-15" android:pivotX="53" android:pivotY="70">
+            <path
+                android:fillColor="#FFA115"
+                android:pathData="M38,18 c-1,0 -2,1 -2,2 v42 c0,1 1,2 2,2 h30 c1,0 2,-1 2,-2 V20 c0,-1 -1,-2 -2,-2 Z" />
+        </group>
+        
+        <!-- Third Sheet (Green) -->
+        <group android:rotation="0" android:pivotX="53" android:pivotY="70">
+            <path
+                android:fillColor="#7ED321"
+                android:pathData="M38,18 c-1,0 -2,1 -2,2 v42 c0,1 1,2 2,2 h30 c1,0 2,-1 2,-2 V20 c0,-1 -1,-2 -2,-2 Z" />
+        </group>
+        
+        <!-- Front Sheet (Sky Blue) with 4 White Text Lines -->
+        <group android:rotation="15" android:pivotX="53" android:pivotY="70">
+            <path
+                android:fillColor="#1E88E5"
+                android:pathData="M38,18 c-1,0 -2,1 -2,2 v42 c0,1 1,2 2,2 h30 c1,0 2,-1 2,-2 V20 c0,-1 -1,-2 -2,-2 Z" />
+            <!-- 4 bold white bars representation of document contents -->
+            <path
+                android:fillColor="#FFFFFF"
+                android:pathData="M43,26 h20 v3 h-20 Z" />
+            <path
+                android:fillColor="#FFFFFF"
+                android:pathData="M43,33 h20 v3 h-20 Z" />
+            <path
+                android:fillColor="#FFFFFF"
+                android:pathData="M43,40 h20 v3 h-20 Z" />
+            <path
+                android:fillColor="#FFFFFF"
+                android:pathData="M43,47 h20 v3 h-20 Z" />
+        </group>
 
-  <!-- ظل خفيف تحت الزاوية المطوية لرسم البعد الثالث -->
-  <path
-      android:fillColor="#B0BEC5"
-      android:pathData="M60,32 L72,32 L60,34 Z"/>
+        <!-- 2. Brand Font "PurePDF" (Perfect centered vector typography) -->
+        <!-- Letter P -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M29,80 h1.5 v8 h-1.5 z" />
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M29,80 h3.5 c1.5,0 2.5,1 2.5,2.25 c0,1.25 -1,2.25 -2.5,2.25 h-2 v-4.5 z" />
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M30.5,81.2 h1.8 c0.5,0 1,0.3 1,1 c0,0.7 -0.5,1 -1,1 h-1.8 z" />
 
-  <!-- شريط PDF الأحمر العريض الملتف حول المستند -->
-  <path
-      android:fillColor="#EF5350"
-      android:pathData="M30,44 h48 c1.5,0 3,1.2 3,3 v8 c0,1.5 -1.5,3 -3,3 H30 c-1.5,0 -3,-1.2 -3,-3 v-8 c0,-1.5 1.5,-3 3,-3 z"/>
+        <!-- Letter u -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M37,83 h1.2 v3.2 c0,0.6 0.3,0.8 0.7,0.8 c0.4,0 0.7,-0.2 0.7,-0.8 v-3.2 h1.2 v5 h-1.2 v-0.6 c-0.3,0.4 -0.7,0.6 -1.2,0.6 c-0.9,0 -1.4,-0.5 -1.4,-1.5 z" />
 
-  <!-- نصوص حروف شريط PDF بالخط العريض المتناسق -->
-  <!-- حرف P -->
-  <path
-      android:fillColor="#FFFFFF"
-      android:pathData="M42,47 h3 c1.2,0 2,0.8 2,1.8 c0,1 -0.8,1.8 -2,1.8 h-1.5 v3.4 h-1.5 z M43.5,49 v1.5 h1 c0.3,0 0.6,-0.3 0.6,-0.7 c0,-0.4 -0.3,-0.8 -0.6,-0.8 z"/>
+        <!-- Letter r -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M44,83 h1.2 v5 h-1.2 z" />
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M45.2,83 h1.2 v0.7 c0.3,-0.5 0.7,-0.7 1.3,-0.7 v1.2 c-0.6,0 -1,0.4 -1.3,1 v2.8 h-1.2 z" />
 
-  <!-- حرف D -->
-  <path
-      android:fillColor="#FFFFFF"
-      android:pathData="M50,47 h2.5 c1.8,0 2.5,1.2 2.5,3.8 c0,2.6 -0.7,3.8 -2.5,3.8 h-2.5 z M51.5,48.5 v5 h1 c0.6,0 1,-0.6 1,-2.5 c0,-1.9 -0.4,-2.5 -1,-2.5 z"/>
+        <!-- Letter e -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M50,85.5 c0,-1.5 1,-2.5 2.5,-2.5 c1.5,0 2.3,1 2.3,2.5 c0,0.2 0,0.4 -0.1,0.5 h-3.5 c0.1,0.6 0.5,1 1.2,1 c0.6,0 1,-0.3 1.2,-0.7 h1.2 c-0.3,1 -1.4,1.7 -2.4,1.7 c-1.6,0 -2.5,-1 -2.5,-2.5 z M51.2,84.7 h2.3 c-0.1,-0.6 -0.4,-1 -1.1,-1 c-0.7,0 -1.1,0.4 -1.2,1 z" />
 
-  <!-- حرف F -->
-  <path
-      android:fillColor="#FFFFFF"
-      android:pathData="M58,47 h4.5 v1.5 h-3 v1.5 h2.5 v1.5 h-2.5 v3.5 h-1.5 z"/>
+        <!-- Letter P -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M58,80 h1.5 v8 h-1.5 z" />
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M58,80 h3.5 c1.5,0 2.5,1 2.5,2.25 c0,1.25 -1,2.25 -2.5,2.25 h-2 v-4.5 z" />
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M59.5,81.2 h1.8 c0.5,0 1,0.3 1,1 c0,0.7 -0.5,1 -1,1 h-1.8 z" />
 
-  <!-- كتابة اسم الماركة "pdf pure" في الأسفل بتصميم عصري وأصلع -->
-  <!-- حرف p -->
-  <path
-      android:fillColor="#FFFFFF"
-      android:pathData="M28,84 h1.2 v2.4 c0.3,-0.6 0.8,-1 1.5,-1 c1.2,0 1.6,0.8 1.6,1.8 c0,1 -0.4,1.8 -1.6,1.8 c-0.7,0 -1.2,-0.4 -1.5,-1 v2.4 h-1.2 z M29.2,86.5 v1.2 c0,0.4 0.2,0.8 0.6,0.8 c0.4,0 0.6,-0.4 0.6,-0.8 c0,-0.4 -0.2,-0.8 -0.6,-0.8 c-0.4,0 -0.6,0.4 -0.6,0.8"/>
+        <!-- Letter D -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M66,80 h3 c2,0 3.5,1.5 3.5,4 c0,2.5 -1.5,4 -3.5,4 h-3 v-8 z" />
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M67.5,81.4 v5.2 h1.5 c1.1,0 2,-0.7 2,-2.6 c0,-1.9 -0.9,-2.6 -2,-2.6 z" />
 
-  <!-- حرف d -->
-  <path
-      android:fillColor="#FFFFFF"
-      android:pathData="M37.5,81 v5.4 h1 c1.2,0 1.6,-0.8 1.6,-1.8 c0,-1 -0.4,-1.8 -1.6,-1.8 c-0.7,0 -1.2,0.4 -1.5,1 v-2.8 h-1.2 z M36.3,86.5 v1.2 c0,0.4 0.2,0.8 0.6,0.8 c0.4,0 0.6,-0.4 0.6,-0.8 c0,-0.4 -0.2,-0.8 -0.6,-0.8 c-0.4,0 -0.6,0.4 -0.6,0.8"/>
+        <!-- Letter F -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M74,80 h4.5 v1.5 h-3 v1.8 h2.5 v1.5 h-2.5 v3.2 h-1.5 v-8 z" />
 
-  <!-- حرف f -->
-  <path
-      android:fillColor="#FFFFFF"
-      android:pathData="M43,81 c-0.8,0 -1.2,0.4 -1.2,1.2 v0.8 h-1 v1.2 h1 v4.8 h1.2 v-4.8 h1.5 v-1.2 h-1.5 v-0.8 c0,-0.3 0.2,-0.5 0.5,-0.5 h1 v-1.2 z"/>
+        <!-- 3. Four-Pointed Star Sparkle (Bottom right decorative sparkle) -->
+        <path
+            android:fillColor="#D0C4FC"
+            android:pathData="M83.5,83.5 Q83.5,85.2 85,85.2 Q83.5,85.2 83.5,87 Q83.5,85.2 82,85.2 Q83.5,85.2 83.5,83.5 Z" />
 
-  <!-- حرف p الثاني -->
-  <path
-      android:fillColor="#FFFFFF"
-      android:pathData="M50,84 h1.2 v2.4 c0.3,-0.6 0.8,-1 1.5,-1 c1.2,0 1.6,0.8 1.6,1.8 c0,1 -0.4,1.8 -1.6,1.8 c-0.7,0 -1.2,-0.4 -1.5,-1 v2.4 h-1.2 z M51.2,86.5 v1.2 c0,0.4 0.2,0.8 0.6,0.8 c0.4,0 0.6,-0.4 0.6,-0.8 c0,-0.4 -0.2,-0.8 -0.6,-0.8 c-0.4,0 -0.6,0.4 -0.6,0.8"/>
-
-  <!-- حرف u -->
-  <path
-      android:fillColor="#FFFFFF"
-      android:pathData="M56.5,84 h1.2 v4.2 c0,0.4 0.2,0.6 0.6,0.6 c0.4,0 0.6,-0.2 0.6,-0.6 v-4.2 h1.2 v4.2 c0,1.2 -0.8,1.8 -1.8,1.8 c-1,0 -1.8,-0.6 -1.8,-1.8 z"/>
-
-  <!-- حرف r -->
-  <path
-      android:fillColor="#FFFFFF"
-      android:pathData="M63,84 h1.2 v1.5 c0.3,-0.8 0.8,-1.2 1.4,-1.2 v1.4 c-0.8,0 -1.4,0.5 -1.4,1.5 v2.1 h-1.2 z"/>
-
-  <!-- حرف e -->
-  <path
-      android:fillColor="#FFFFFF"
-      android:pathData="M68.5,86.5 h3.5 c0,-1 -0.6,-1.8 -1.8,-1.8 c-1.2,0 -1.8,0.8 -1.8,1.8 c0,1 0.7,1.8 1.9,1.8 c0.9,0 1.5,-0.4 1.7,-1.1 h-1.2 c-0.2,0.3 -0.4,0.4 -0.6,0.4 c-0.4,0 -0.6,-0.3 -0.7,-0.7 v-0.4 z M69.7,85.7 c0,-0.3 0.2,-0.5 0.6,-0.5 c0.3,0 0.5,0.2 0.6,0.5 z"/>
+    </group>
 
 </vector>
