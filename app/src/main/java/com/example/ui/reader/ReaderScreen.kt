@@ -112,6 +112,29 @@ fun ReaderScreen(
     val errorMessage by viewModel.errorMessage.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
 
+    var base64String by remember(pdfUri) { mutableStateOf<String?>(null) }
+    var base64Error by remember(pdfUri) { mutableStateOf<String?>(null) }
+    var isBase64Loading by remember(pdfUri) { mutableStateOf(true) }
+
+    LaunchedEffect(pdfUri) {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                isBase64Loading = true
+                context.contentResolver.openInputStream(pdfUri)?.use { inputStream ->
+                    val bytes = inputStream.readBytes()
+                    val base64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                    base64String = base64
+                    base64Error = null
+                }
+            } catch (e: Exception) {
+                base64Error = e.localizedMessage
+                e.printStackTrace()
+            } finally {
+                isBase64Loading = false
+            }
+        }
+    }
+
     // Sub-annotations state (text vs sticky)
     var annotationSubTool by remember { mutableStateOf("text") }
 
@@ -499,6 +522,135 @@ fun ReaderScreen(
                 else -> {
                     // Main Pdf Workspace Scroll Loop
                     if (pageCount > 0) {
+                        if (isBase64Loading) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color(0xFF0B0F19)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    CircularProgressIndicator(color = Color(0xFF2196F3))
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                    Text("جاري معالجة وتجهيز الملف...", color = Color.White)
+                                }
+                            }
+                        } else if (base64Error != null) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color(0xFF0B0F19))
+                                    .padding(24.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "❌ خطأ في تحميل ملف الـ PDF:\n$base64Error",
+                                    color = Color.Red,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                )
+                            }
+                        } else {
+                            val b64 = base64String ?: ""
+                            androidx.compose.ui.viewinterop.AndroidView(
+                                factory = { ctx ->
+                                    android.webkit.WebView(ctx).apply {
+                                        settings.javaScriptEnabled = true
+                                        settings.allowFileAccess = true
+                                        settings.allowContentAccess = true
+                                        settings.domStorageEnabled = true
+                                        settings.databaseEnabled = true
+                                        settings.useWideViewPort = true
+                                        settings.loadWithOverviewMode = true
+                                        setBackgroundColor(0xFF0B0F19.toInt())
+                                        
+                                        webChromeClient = android.webkit.WebChromeClient()
+                                        webViewClient = object : android.webkit.WebViewClient() {
+                                            private fun handlePdfUrl(url: String?): Boolean {
+                                                if (url == null) return false
+                                                
+                                                // Check for audio links
+                                                if (url.contains("translate_tts", ignoreCase = true) || url.endsWith(".mp3", ignoreCase = true)) {
+                                                    android.widget.Toast.makeText(ctx, "جاري تشغيل الصوت...", android.widget.Toast.LENGTH_SHORT).show()
+                                                    try {
+                                                        android.media.MediaPlayer().apply {
+                                                            setAudioAttributes(
+                                                                android.media.AudioAttributes.Builder()
+                                                                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
+                                                                    .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                                                                    .build()
+                                                            )
+                                                            setDataSource(url)
+                                                            setOnPreparedListener { mp ->
+                                                                mp.start()
+                                                            }
+                                                            setOnErrorListener { mp, what, extra ->
+                                                                android.widget.Toast.makeText(ctx, "فشل في تشغيل الصوت", android.widget.Toast.LENGTH_SHORT).show()
+                                                                mp.release()
+                                                                true
+                                                            }
+                                                            setOnCompletionListener { mp ->
+                                                                mp.release()
+                                                            }
+                                                            prepareAsync()
+                                                        }
+                                                    } catch (e: Exception) {
+                                                        e.printStackTrace()
+                                                        android.widget.Toast.makeText(ctx, "خطأ في تشغيل الصوت: ${e.localizedMessage}", android.widget.Toast.LENGTH_SHORT).show()
+                                                    }
+                                                    return true
+                                                }
+                                                
+                                                // Check for standard web/dictionary links
+                                                if (url.startsWith("http://", ignoreCase = true) || url.startsWith("https://", ignoreCase = true)) {
+                                                    try {
+                                                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)).apply {
+                                                            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                        }
+                                                        ctx.startActivity(intent)
+                                                        android.widget.Toast.makeText(ctx, "جاري فتح الرابط في المتصفح...", android.widget.Toast.LENGTH_SHORT).show()
+                                                    } catch (e: Exception) {
+                                                        e.printStackTrace()
+                                                        android.widget.Toast.makeText(ctx, "لا يمكن فتح الرابط: ${e.localizedMessage}", android.widget.Toast.LENGTH_SHORT).show()
+                                                    }
+                                                    return true
+                                                }
+                                                return false
+                                            }
+
+                                            override fun onPageFinished(view: android.webkit.WebView?, url: String?) {
+                                                super.onPageFinished(view, url)
+                                            }
+
+                                            override fun shouldOverrideUrlLoading(
+                                                view: android.webkit.WebView?,
+                                                request: android.webkit.WebResourceRequest?
+                                            ): Boolean {
+                                                return handlePdfUrl(request?.url?.toString())
+                                            }
+
+                                            @Deprecated("Deprecated in Java")
+                                            override fun shouldOverrideUrlLoading(
+                                                view: android.webkit.WebView?,
+                                                url: String?
+                                            ): Boolean {
+                                                return handlePdfUrl(url)
+                                            }
+                                        }
+                                        addJavascriptInterface(object {
+                                            @android.webkit.JavascriptInterface
+                                            fun getPdfBase64(): String { return b64 }
+                                            @android.webkit.JavascriptInterface
+                                            fun onPdfLoaded(numPages: Int) {}
+                                            @android.webkit.JavascriptInterface
+                                            fun onError(error: String?) {}
+                                        }, "AndroidPdfViewer")
+                                        loadUrl("file:///android_asset/pdfjs/viewer.html")
+                                    }
+                                },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                    } else if (false && pageCount > 0) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -1991,6 +2143,7 @@ fun ReaderScreen(
             val ttsSentences by viewModel.ttsSentences.collectAsState()
             val ttsCurrentSentenceIdx by viewModel.ttsCurrentSentenceIndex.collectAsState()
             val ttsSpeed by viewModel.ttsSpeed.collectAsState()
+            val ttsLanguageMode by viewModel.ttsLanguageMode.collectAsState()
 
             if (ttsSentences.isNotEmpty() && ttsCurrentSentenceIdx != -1) {
                 Card(
@@ -2029,6 +2182,40 @@ fun ReaderScreen(
                                             .padding(horizontal = 6.dp, vertical = 4.dp)
                                     ) {
                                         Text("${speed}x", color = if (ttsSpeed == speed) Color.White else TextMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        // Language mode selection row
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                        ) {
+                            Text("لغة القراءة:", color = TextMuted, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                            Row(
+                                modifier = Modifier.background(DarkBorder, RoundedCornerShape(12.dp)).padding(horizontal = 4.dp, vertical = 2.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                listOf(
+                                    Triple(0, "تلقائي (ذكائي)", "Auto"),
+                                    Triple(1, "العربية (العربية)", "Arabic"),
+                                    Triple(2, "الألمانية (Deutsch)", "German")
+                                ).forEach { (mode, label, _) ->
+                                    Box(
+                                        modifier = Modifier
+                                            .background(
+                                                if (ttsLanguageMode == mode) AccentBlue else Color.Transparent,
+                                                RoundedCornerShape(8.dp)
+                                            )
+                                            .clickable { viewModel.setTtsLanguageMode(mode) }
+                                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                                    ) {
+                                        Text(label, color = if (ttsLanguageMode == mode) Color.White else TextMuted, fontSize = 9.5.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
@@ -3103,6 +3290,8 @@ fun PdfPageRenderItem(
                             SelectionFloatingToolbar(
                                 offset = Offset(centerSelectionX, minTop),
                                 selectedText = selectedText,
+                                viewportScale = settledScale,
+                                containerWidth = containerSize.width.toFloat(),
                                 onCopy = {
                                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                                     val clip = android.content.ClipData.newPlainText("Copied Text", selectedText)
@@ -3339,63 +3528,6 @@ fun findWordUnderTouch(touch: Offset, containerSize: IntSize, blocks: List<OcrBl
 }
 
 @Composable
-fun SelectionToolbar(
-    modifier: Modifier = Modifier,
-    onCopy: () -> Unit,
-    onTranslate: () -> Unit,
-    onHighlight: () -> Unit,
-    onDwds: () -> Unit,
-    onSaveVocabulary: () -> Unit
-) {
-    Card(
-        modifier = modifier,
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E2E)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
-        shape = RoundedCornerShape(8.dp),
-        border = BorderStroke(1.dp, Gold)
-    ) {
-        Row(
-            modifier = Modifier
-                .padding(horizontal = 4.dp, vertical = 2.dp)
-                .fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            ToolbarAction("نسخ", Icons.Default.ContentCopy, onCopy)
-            ToolbarAction("ترجمة", Icons.Default.Translate, onTranslate)
-            ToolbarAction("تمييز", Icons.Default.BorderColor, onHighlight)
-            ToolbarAction("DWDS", Icons.Default.Book, onDwds)
-            ToolbarAction("حفظ كمفردة", Icons.Default.Star, onSaveVocabulary)
-        }
-    }
-}
-
-@Composable
-fun ToolbarAction(label: String, icon: ImageVector, onClick: () -> Unit) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
-            .clip(RoundedCornerShape(4.dp))
-            .clickable(onClick = onClick)
-            .padding(vertical = 4.dp, horizontal = 4.dp)
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = label,
-            tint = Color.White,
-            modifier = Modifier.size(18.dp)
-        )
-        Spacer(modifier = Modifier.height(2.dp))
-        Text(
-            text = label,
-            color = Color.White,
-            fontSize = 9.sp,
-            fontWeight = FontWeight.Bold
-        )
-    }
-}
-
-@Composable
 fun BottomBarAction(label: String, icon: ImageVector, onClick: () -> Unit) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -3424,6 +3556,8 @@ fun BottomBarAction(label: String, icon: ImageVector, onClick: () -> Unit) {
 fun SelectionFloatingToolbar(
     offset: Offset,
     selectedText: String,
+    viewportScale: Float = 1f,
+    containerWidth: Float,
     onCopy: () -> Unit,
     onTranslate: () -> Unit,
     onHighlight: () -> Unit,
@@ -3435,12 +3569,17 @@ fun SelectionFloatingToolbar(
     val density = LocalDensity.current
     
     // Position toolbar above the word, centered horizontally on it
-    val toolbarX = with(density) { 
-        maxOf(8.dp.toPx(), minOf(offset.x - 140f, 400f))
-    }
-    val toolbarY = with(density) { 
-        maxOf(8.dp.toPx(), offset.y - 80f) // 80px above the word
-    }
+    val toolbarWidthDp = 272.dp
+    val toolbarHeightDp = 60.dp
+    
+    val toolbarWidthPx = with(density) { toolbarWidthDp.toPx() }
+    val toolbarHeightPx = with(density) { toolbarHeightDp.toPx() }
+    
+    val toolbarX = (offset.x - toolbarWidthPx / 2f).coerceIn(
+        with(density) { 8.dp.toPx() }, 
+        maxOf(with(density) { 8.dp.toPx() }, containerWidth - toolbarWidthPx - with(density) { 8.dp.toPx() })
+    )
+    val toolbarY = (offset.y - toolbarHeightPx - with(density) { 8.dp.toPx() }).coerceAtLeast(with(density) { 8.dp.toPx() })
 
     Box(
         modifier = Modifier.fillMaxSize(),
@@ -3464,6 +3603,13 @@ fun SelectionFloatingToolbar(
                     x = with(density) { toolbarX.toDp() },
                     y = with(density) { toolbarY.toDp() }
                 )
+                .graphicsLayer {
+                    if (viewportScale > 0.05f) {
+                        scaleX = 1f / viewportScale
+                        scaleY = 1f / viewportScale
+                        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0.5f)
+                    }
+                }
                 .zIndex(100f),
             colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A2E)),
             elevation = CardDefaults.cardElevation(12.dp),

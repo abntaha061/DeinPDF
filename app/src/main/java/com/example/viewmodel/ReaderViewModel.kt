@@ -161,6 +161,9 @@ class ReaderViewModel(
     private val _ttsSpeed = MutableStateFlow(1.0f)
     val ttsSpeed: StateFlow<Float> = _ttsSpeed.asStateFlow()
 
+    private val _ttsLanguageMode = MutableStateFlow(0) // 0: Auto, 1: Arabic, 2: German
+    val ttsLanguageMode: StateFlow<Int> = _ttsLanguageMode.asStateFlow()
+
     private val _ttsSentences = MutableStateFlow<List<String>>(emptyList())
     val ttsSentences: StateFlow<List<String>> = _ttsSentences.asStateFlow()
 
@@ -877,7 +880,6 @@ class ReaderViewModel(
     }
 
     private fun speakSentence(context: Context, index: Int, hasArabic: Boolean) {
-        val targetLocale = if (hasArabic) Locale("ar") else Locale.GERMAN
         val list = _ttsSentences.value
         _ttsCurrentSentenceIndex.value = index
         
@@ -889,6 +891,12 @@ class ReaderViewModel(
         }
         
         val targetText = list[index]
+        val autoArabic = targetText.any { it in '\u0600'..'\u06FF' }
+        val targetLocale = when (_ttsLanguageMode.value) {
+            1 -> Locale("ar")
+            2 -> Locale.GERMAN
+            else -> if (autoArabic) Locale("ar") else Locale.GERMAN
+        }
 
         if (tts == null) {
             var tempTts: TextToSpeech? = null
@@ -904,7 +912,7 @@ class ReaderViewModel(
                             }
                             override fun onDone(utteranceId: String?) {
                                 val nextIndex = (utteranceId?.toIntOrNull() ?: 0) + 1
-                                speakSentence(context, nextIndex, hasArabic)
+                                speakSentence(context, nextIndex, autoArabic)
                             }
                             override fun onError(utteranceId: String?) {
                                 _isTtsPlaying.value = false
@@ -925,7 +933,7 @@ class ReaderViewModel(
                 }
                 override fun onDone(utteranceId: String?) {
                     val nextIndex = (utteranceId?.toIntOrNull() ?: 0) + 1
-                    speakSentence(context, nextIndex, hasArabic)
+                    speakSentence(context, nextIndex, autoArabic)
                 }
                 override fun onError(utteranceId: String?) {
                     _isTtsPlaying.value = false
@@ -1013,6 +1021,10 @@ class ReaderViewModel(
     fun setTtsSpeed(speed: Float) {
         _ttsSpeed.value = speed
         tts?.setSpeechRate(speed)
+    }
+
+    fun setTtsLanguageMode(mode: Int) {
+        _ttsLanguageMode.value = mode
     }
 
     fun speak(text: String, context: Context) {
