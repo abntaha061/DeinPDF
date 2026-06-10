@@ -66,6 +66,9 @@
     <script>
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf.worker.min.js';
 
+        let totalPages = 0;
+        let pageHeights = [];
+
         const base64Data = AndroidPdfBridge.getPdfBase64();
         
         if (base64Data) {
@@ -76,6 +79,8 @@
             }
 
             pdfjsLib.getDocument({data: array}).promise.then(function(pdf) {
+                totalPages = pdf.numPages;
+                AndroidPdfBridge.onTotalPages(totalPages);
                 const container = document.getElementById('viewer-container');
                 for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
                     renderPage(pdf, pageNum, container);
@@ -83,10 +88,33 @@
             });
         }
 
+        // رصد الصفحة الحالية عند السكرول
+        window.addEventListener('scroll', function() {
+            const scrollY = window.scrollY;
+            let cumulative = 0;
+            for (let i = 0; i < pageHeights.length; i++) {
+                cumulative += pageHeights[i];
+                if (scrollY < cumulative) {
+                    AndroidPdfBridge.onPageChanged(i + 1);
+                    break;
+                }
+            }
+        });
+
+        // الانتقال لصفحة معينة من الـ Kotlin
+        function scrollToPage(pageNum) {
+            let cumulative = 0;
+            for (let i = 0; i < pageNum - 1; i++) {
+                cumulative += pageHeights[i];
+            }
+            window.scrollTo({ top: cumulative, behavior: 'smooth' });
+        }
+
         function renderPage(pdf, pageNum, container) {
             pdf.getPage(pageNum).then(function(page) {
                 const pageContainer = document.createElement('div');
                 pageContainer.className = 'page-container';
+                pageContainer.dataset.page = pageNum;
                 container.appendChild(pageContainer);
 
                 const canvas = document.createElement('canvas');
@@ -106,6 +134,9 @@
                 canvas.style.width = (viewport.width / pixelRatio) + 'px';
                 canvas.style.height = (viewport.height / pixelRatio) + 'px';
 
+                const displayHeight = viewport.height / pixelRatio + 8;
+                pageHeights[pageNum - 1] = displayHeight;
+
                 pageContainer.style.width = (viewport.width / pixelRatio) + 'px';
                 pageContainer.style.height = (viewport.height / pixelRatio) + 'px';
 
@@ -116,7 +147,7 @@
 
                 page.render(renderContext).promise.then(function() {
 
-                    // Text Layer يدوي بـ displayViewport الصح
+                    // Text Layer للتحديد والنسخ
                     page.getTextContent().then(function(textContent) {
                         const textLayerDiv = document.createElement('div');
                         textLayerDiv.className = 'textLayer';
