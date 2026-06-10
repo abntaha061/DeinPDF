@@ -1,10 +1,12 @@
 package com.example.ui.reader
 
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.net.Uri
+import android.provider.OpenableColumns
 import android.util.Base64
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
@@ -27,10 +29,33 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import com.example.ui.theme.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+
+// دالة سحرية لاستخراج اسم الملف الحقيقي ومسح كلمة document
+fun getCleanFileName(context: Context, uri: Uri): String {
+    var result = "ملف PDF"
+    if (uri.scheme == "content") {
+        val cursor = context.contentResolver.query(uri, null, null, null, null)
+        try {
+            if (cursor != null && cursor.moveToFirst()) {
+                val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (index != -1) {
+                    result = cursor.getString(index)
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        } finally {
+            cursor?.close()
+        }
+    }
+    if (result == "ملف PDF" || result.startsWith("document")) {
+        result = uri.lastPathSegment?.substringAfterLast("/") ?: "ملف PDF"
+    }
+    return result.replace("document:", "").replace(".pdf", "", ignoreCase = true)
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -44,8 +69,8 @@ fun ReaderScreen(
     var tempFilePath by remember { mutableStateOf<String?>(null) }
     var copyError by remember { mutableStateOf<String?>(null) }
     var isPreparingFile by remember { mutableStateOf(true) }
+    val cleanFileName = remember(pdfUri) { getCleanFileName(context, pdfUri) }
 
-    // تجهيز الملف في الخلفية بشكل آمن
     LaunchedEffect(pdfUri) {
         withContext(Dispatchers.IO) {
             try {
@@ -75,9 +100,8 @@ fun ReaderScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    val fileName = pdfUri.lastPathSegment ?: "ملف PDF"
                     Text(
-                        text = fileName,
+                        text = cleanFileName,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         fontSize = 16.sp,
@@ -127,14 +151,12 @@ fun ReaderScreen(
                         modifier = Modifier.fillMaxSize().padding(24.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = "❌ حدث خطأ أثناء تحميل الملف:\n$copyError",
-                                color = Color.Red,
-                                fontSize = 16.sp,
-                                textAlign = TextAlign.Center
-                            )
-                        }
+                        Text(
+                            text = "❌ حدث خطأ أثناء تحميل الملف:\n$copyError",
+                            color = Color.Red,
+                            fontSize = 16.sp,
+                            textAlign = TextAlign.Center
+                        )
                     }
                 }
                 tempFilePath != null -> {
@@ -151,16 +173,17 @@ fun ReaderScreen(
                                 @Suppress("DEPRECATION")
                                 settings.allowUniversalAccessFromFileURLs = true
                                 
-                                // تفعيل التكبير السلس والأصيل للشاشة بالكامل
+                                // تفعيل ميزة التكبير بالإصبعين الاحترافية للشاشة بالكامل
                                 settings.setSupportZoom(true)
                                 settings.builtInZoomControls = true
                                 settings.displayZoomControls = false
+                                
+                                // جعل محتوى الويب يأخذ حجم الشاشة العريضة بالكامل ليتصرف كأيقونة حرة للتكبير
                                 settings.useWideViewPort = true
                                 settings.loadWithOverviewMode = true
                                 
                                 setBackgroundColor(0xFF0B0F19.toInt())
 
-                                // الجسر البرمجي الذكي لالتقاط الملف والروابط
                                 addJavascriptInterface(object {
                                     @JavascriptInterface
                                     fun getPdfBase64(): String {
@@ -174,9 +197,8 @@ fun ReaderScreen(
 
                                     @JavascriptInterface
                                     fun onLinkIntercepted(url: String) {
-                                        // تشغيل العمليات على خيط الواجهة الرئيسي للأندرويد تجنباً للانهيار
                                         (ctx as? Activity)?.runOnUiThread {
-                                            // 1. معالجة روابط الصوت والنطق الخلفي
+                                            // 1. تشغيل النطق الفوري للألمانية
                                             if (url.contains("translate_tts", ignoreCase = true) || url.endsWith(".mp3", ignoreCase = true)) {
                                                 Toast.makeText(ctx, "🎧 جاري النطق بالألمانية...", Toast.LENGTH_SHORT).show()
                                                 try {
@@ -190,7 +212,7 @@ fun ReaderScreen(
                                                         setDataSource(url)
                                                         setOnPreparedListener { mp -> mp.start() }
                                                         setOnErrorListener { mp, _, _ ->
-                                                            Toast.makeText(ctx, "فشل النطق التلقائي", Toast.LENGTH_SHORT).show()
+                                                            Toast.makeText(ctx, "فشل النطق", Toast.LENGTH_SHORT).show()
                                                             mp.release()
                                                             true
                                                         }
@@ -201,16 +223,15 @@ fun ReaderScreen(
                                                     e.printStackTrace()
                                                 }
                                             }
-                                            // 2. معالجة روابط الويب (Arabdict) لفتحها في المتصفح الخارجي شاملاً
+                                            // 2. الطيران لمتصفح كروم الخارجي لفتح Arabdict
                                             else if (url.startsWith("http://", ignoreCase = true) || url.startsWith("https://", ignoreCase = true)) {
                                                 try {
                                                     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
                                                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                                     }
                                                     ctx.startActivity(intent)
-                                                    Toast.makeText(ctx, "🌐 جاري فتح Arabdict...", Toast.LENGTH_SHORT).show()
                                                 } catch (e: Exception) {
-                                                    Toast.makeText(ctx, "عذراً، لا يمكن فتح الرابط", Toast.LENGTH_SHORT).show()
+                                                    Toast.makeText(ctx, "لا يمكن فتح القاموس", Toast.LENGTH_SHORT).show()
                                                 }
                                             }
                                         }
@@ -220,7 +241,6 @@ fun ReaderScreen(
                                 webChromeClient = WebChromeClient()
                                 webViewClient = WebViewClient()
 
-                                // تحميل الواجهة النظيفة مباشرة
                                 loadUrl("file:///android_asset/pdfjs/viewer.html")
                             }
                         },
