@@ -21,14 +21,13 @@
         .page-container {
             position: relative;
             background-color: white;
-            margin-bottom: 8px; /* فواصل صغيرة واحترافية مثل WPS */
+            margin-bottom: 8px;
             box-shadow: 0 4px 8px rgba(0,0,0,0.5);
             display: inline-block;
         }
         canvas {
             display: block;
         }
-        /* طبقة الروابط التفاعلية المخصصة */
         .custom-link {
             position: absolute;
             background: transparent;
@@ -43,7 +42,6 @@
     <script>
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf.worker.min.js';
 
-        // سحب بايتات الملف المشفرة من الكوتلن لكسر الحظر الأمني
         const base64Data = AndroidPdfBridge.getPdfBase64();
         
         if (base64Data) {
@@ -53,7 +51,6 @@
                 array[i] = raw.charCodeAt(i);
             }
 
-            // فتح المستند بالكامل
             pdfjsLib.getDocument({data: array}).promise.then(function(pdf) {
                 const container = document.getElementById('viewer-container');
                 for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
@@ -72,12 +69,14 @@
                 const context = canvas.getContext('2d');
                 pageContainer.appendChild(canvas);
 
-                // رسم المستند بحجمه الأصلي والكامل (Scale 1.5 يعطي أبعاد ممتازة للشاشة)
-                const viewport = page.getViewport({ scale: 1.5 });
+                const screenWidth = window.innerWidth;
+                const baseViewport = page.getViewport({ scale: 1.0 });
+                const scale = screenWidth / baseViewport.width;
+                const viewport = page.getViewport({ scale: scale });
+
                 canvas.width = viewport.width;
                 canvas.height = viewport.height;
                 
-                // إجبار الحاوية على أخذ أبعاد الصفحة بالملي لمنع الانكماش
                 pageContainer.style.width = viewport.width + 'px';
                 pageContainer.style.height = viewport.height + 'px';
 
@@ -87,7 +86,6 @@
                 };
                 
                 page.render(renderContext).promise.then(function() {
-                    // [السر البرمجي 🛡️]: صيد الروابط من الـ Annotation Layer ورسمها فوق الصفحة
                     page.getAnnotations().then(function(annotations) {
                         annotations.forEach(function(annot) {
                             if (annot.url) {
@@ -95,7 +93,6 @@
                                 linkBtn.className = 'custom-link';
                                 linkBtn.href = annot.url;
                                 
-                                // تحويل إحداثيات الـ PDF الرياضية إلى أبعاد بكسل مطابقة للشاشة
                                 const rect = viewport.convertToViewportRectangle(annot.rect);
                                 
                                 linkBtn.style.left = Math.min(rect[0], rect[2]) + 'px';
@@ -111,7 +108,6 @@
             });
         }
 
-        // إرسال الرابط فوراً عند النقر عليه إلى الكوتلن لمنع المتصفح الداخلي من التخريف
         document.addEventListener('click', function(e) {
             const targetLink = e.target.closest('.custom-link');
             if (targetLink && targetLink.href) {
