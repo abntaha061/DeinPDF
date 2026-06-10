@@ -116,17 +116,49 @@
 
                 page.render(renderContext).promise.then(function() {
 
-                    // Text Layer للتحديد والنسخ
+                    // Text Layer يدوي بـ displayViewport الصح
                     page.getTextContent().then(function(textContent) {
                         const textLayerDiv = document.createElement('div');
                         textLayerDiv.className = 'textLayer';
                         pageContainer.appendChild(textLayerDiv);
 
-                        pdfjsLib.renderTextLayer({
-                            textContentSource: textContent,
-                            container: textLayerDiv,
-                            viewport: displayViewport,
-                            textDivs: []
+                        textContent.items.forEach(function(item) {
+                            if (!item.str || item.str.trim() === '') return;
+
+                            const tx = pdfjsLib.Util.transform(
+                                displayViewport.transform,
+                                item.transform
+                            );
+
+                            const span = document.createElement('span');
+                            span.textContent = item.str;
+
+                            const fontSize = Math.sqrt(tx[2] * tx[2] + tx[3] * tx[3]);
+                            const angle = Math.atan2(tx[1], tx[0]);
+
+                            span.style.fontSize = fontSize + 'px';
+                            span.style.left = tx[4] + 'px';
+                            span.style.top = (tx[5] - fontSize) + 'px';
+
+                            let transform = '';
+                            if (Math.abs(angle) > 0.001) {
+                                transform += 'rotate(' + (-angle) + 'rad) ';
+                            }
+
+                            if (item.width > 0 && item.str.length > 0) {
+                                const expectedWidth = item.width * displayScale;
+                                const actualWidth = item.str.length * fontSize * 0.55;
+                                const scaleX = expectedWidth / actualWidth;
+                                if (scaleX > 0 && scaleX < 10 && !isNaN(scaleX)) {
+                                    transform += 'scaleX(' + scaleX + ')';
+                                }
+                            }
+
+                            if (transform) {
+                                span.style.transform = transform;
+                            }
+
+                            textLayerDiv.appendChild(span);
                         });
                     });
 
