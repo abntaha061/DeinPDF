@@ -6,6 +6,8 @@ import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -39,6 +41,21 @@ fun SettingsScreen(
         ActivityResultContracts.StartActivityForResult()
     ) {}
 
+    // حالات (States) للتحكم في ظهور النوافذ المنبثقة السفلية
+    var showThemeSheet by remember { mutableStateOf(false) }
+    var showSourceLangSheet by remember { mutableStateOf(false) }
+    var showTargetLangSheet by remember { mutableStateOf(false) }
+    var showVoiceSheet by remember { mutableStateOf(false) }
+    var showScrollSheet by remember { mutableStateOf(false) }
+    var showPdfModeSheet by remember { mutableStateOf(false) }
+
+    // حالات (States) للخيارات (مؤقتة حتى يتم ربطها بالـ ViewModel لاحقاً)
+    var sourceLang by remember { mutableStateOf("de") }
+    var targetLang by remember { mutableStateOf("ar") }
+    var voice by remember { mutableStateOf("female") }
+    var scrollDirection by remember { mutableStateOf("vertical") }
+    var pdfMode by remember { mutableStateOf("continuous") }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -50,10 +67,13 @@ fun SettingsScreen(
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkSurface, titleContentColor = Color.White)
             )
-        }
+        },
+        containerColor = DarkSurface // لضمان لون الخلفية المناسب
     ) { padding ->
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -62,21 +82,11 @@ fun SettingsScreen(
 
             item {
                 SettingsCard {
-                    Text("وضع الألوان", color = Color.White, fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.height(12.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ThemeMode.values().forEach { mode ->
-                            FilterChip(
-                                selected = themeMode == mode,
-                                onClick = { viewModel.setThemeMode(mode) },
-                                label = { Text(mode.arabicName, fontSize = 12.sp) },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = AccentBlue,
-                                    selectedLabelColor = Color.White
-                                )
-                            )
-                        }
-                    }
+                    SettingsSelectionRow(
+                        label = "وضع الألوان",
+                        selectedValueDisplay = themeMode.arabicName,
+                        onClick = { showThemeSheet = true }
+                    )
                 }
             }
 
@@ -125,25 +135,22 @@ fun SettingsScreen(
 
             item {
                 SettingsCard {
-                    SettingsRowWithChips(
+                    SettingsSelectionRow(
                         label = "لغة المصدر الافتراضية",
-                        options = listOf("de" to "🇩🇪 ألماني", "ar" to "🇸🇦 عربي", "auto" to "🤖 تلقائي"),
-                        selected = "de",
-                        onSelect = {}
+                        selectedValueDisplay = when(sourceLang) { "de" -> "🇩🇪 ألماني"; "ar" -> "🇸🇦 عربي"; else -> "🤖 تلقائي" },
+                        onClick = { showSourceLangSheet = true }
                     )
                     HorizontalDivider(color = DarkBorder, modifier = Modifier.padding(vertical = 8.dp))
-                    SettingsRowWithChips(
+                    SettingsSelectionRow(
                         label = "لغة الترجمة الفرعية",
-                        options = listOf("ar" to "🇸🇦 عربي", "de" to "🇩🇪 ألماني", "en" to "🇬🇧 إنجليزي"),
-                        selected = "ar",
-                        onSelect = {}
+                        selectedValueDisplay = when(targetLang) { "ar" -> "🇸🇦 عربي"; "de" -> "🇩🇪 ألماني"; else -> "🇬🇧 إنجليزي" },
+                        onClick = { showTargetLangSheet = true }
                     )
                     HorizontalDivider(color = DarkBorder, modifier = Modifier.padding(vertical = 8.dp))
-                    SettingsRowWithChips(
+                    SettingsSelectionRow(
                         label = "صوت القارئ الافتراضي",
-                        options = listOf("female" to "أنثى (افتراضي)", "male" to "ذكر"),
-                        selected = "female",
-                        onSelect = {}
+                        selectedValueDisplay = if (voice == "female") "أنثى (افتراضي)" else "ذكر",
+                        onClick = { showVoiceSheet = true }
                     )
                 }
             }
@@ -192,18 +199,16 @@ fun SettingsScreen(
 
             item {
                 SettingsCard {
-                    SettingsRowWithChips(
+                    SettingsSelectionRow(
                         label = "اتجاه التمرير",
-                        options = listOf("vertical" to "↕ رأسي", "horizontal" to "↔ أفقي"),
-                        selected = "vertical",
-                        onSelect = {}
+                        selectedValueDisplay = if (scrollDirection == "vertical") "↕ رأسي" else "↔ أفقي",
+                        onClick = { showScrollSheet = true }
                     )
                     HorizontalDivider(color = DarkBorder, modifier = Modifier.padding(vertical = 8.dp))
-                    SettingsRowWithChips(
+                    SettingsSelectionRow(
                         label = "وضع صفحات PDF",
-                        options = listOf("continuous" to "متواصل (Continuous)", "single" to "صفحة بصفحة", "book" to "وضع كتاب"),
-                        selected = "continuous",
-                        onSelect = {}
+                        selectedValueDisplay = when(pdfMode) { "continuous" -> "متواصل (Continuous)"; "single" -> "صفحة بصفحة"; else -> "وضع كتاب" },
+                        onClick = { showPdfModeSheet = true }
                     )
                 }
             }
@@ -256,8 +261,72 @@ fun SettingsScreen(
 
             item { Spacer(Modifier.height(40.dp)) }
         }
+
+        // ════════ النوافذ المنبثقة السفلية (Bottom Sheets) ════════
+
+        if (showThemeSheet) {
+            SelectionBottomSheet(
+                title = "وضع الألوان",
+                options = ThemeMode.values().map { it to it.arabicName },
+                selectedValue = themeMode,
+                onSelect = { viewModel.setThemeMode(it) },
+                onDismiss = { showThemeSheet = false }
+            )
+        }
+
+        if (showSourceLangSheet) {
+            SelectionBottomSheet(
+                title = "لغة المصدر الافتراضية",
+                options = listOf("de" to "🇩🇪 ألماني", "ar" to "🇸🇦 عربي", "auto" to "🤖 تلقائي"),
+                selectedValue = sourceLang,
+                onSelect = { sourceLang = it },
+                onDismiss = { showSourceLangSheet = false }
+            )
+        }
+
+        if (showTargetLangSheet) {
+            SelectionBottomSheet(
+                title = "لغة الترجمة الفرعية",
+                options = listOf("ar" to "🇸🇦 عربي", "de" to "🇩🇪 ألماني", "en" to "🇬🇧 إنجليزي"),
+                selectedValue = targetLang,
+                onSelect = { targetLang = it },
+                onDismiss = { showTargetLangSheet = false }
+            )
+        }
+
+        if (showVoiceSheet) {
+            SelectionBottomSheet(
+                title = "صوت القارئ الافتراضي",
+                options = listOf("female" to "أنثى (افتراضي)", "male" to "ذكر"),
+                selectedValue = voice,
+                onSelect = { voice = it },
+                onDismiss = { showVoiceSheet = false }
+            )
+        }
+
+        if (showScrollSheet) {
+            SelectionBottomSheet(
+                title = "اتجاه التمرير",
+                options = listOf("vertical" to "↕ رأسي", "horizontal" to "↔ أفقي"),
+                selectedValue = scrollDirection,
+                onSelect = { scrollDirection = it },
+                onDismiss = { showScrollSheet = false }
+            )
+        }
+
+        if (showPdfModeSheet) {
+            SelectionBottomSheet(
+                title = "وضع صفحات PDF",
+                options = listOf("continuous" to "متواصل (Continuous)", "single" to "صفحة بصفحة", "book" to "وضع كتاب"),
+                selectedValue = pdfMode,
+                onSelect = { pdfMode = it },
+                onDismiss = { showPdfModeSheet = false }
+            )
+        }
     }
 }
+
+// ════════ مكونات الواجهة المساعدة (UI Components) ════════
 
 @Composable
 fun SettingsSectionHeader(title: String) {
@@ -266,7 +335,7 @@ fun SettingsSectionHeader(title: String) {
         color = AccentBlue,
         fontWeight = FontWeight.Bold,
         fontSize = 13.sp,
-        modifier = Modifier.padding(top = 12.dp, bottom = 4.dp)
+        modifier = Modifier.padding(top = 12.dp, bottom = 4.dp, start = 8.dp)
     )
 }
 
@@ -279,6 +348,30 @@ fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(Modifier.padding(16.dp), content = content)
+    }
+}
+
+// المكون الجديد لعرض الخيار القابل للضغط (لفتح النافذة المنبثقة)
+@Composable
+fun SettingsSelectionRow(
+    label: String,
+    selectedValueDisplay: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column {
+            Text(label, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+            Spacer(Modifier.height(4.dp))
+            Text(selectedValueDisplay, color = AccentBlue, fontSize = 13.sp)
+        }
+        Icon(Icons.Default.KeyboardArrowDown, contentDescription = "تغيير الخيار", tint = TextMuted)
     }
 }
 
@@ -306,32 +399,6 @@ fun SettingsSwitchRow(
 }
 
 @Composable
-fun SettingsRowWithChips(
-    label: String,
-    options: List<Pair<String, String>>,
-    selected: String,
-    onSelect: (String) -> Unit
-) {
-    Column {
-        Text(label, color = Color.White, fontSize = 14.sp)
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            options.forEach { (key, display) ->
-                FilterChip(
-                    selected = selected == key,
-                    onClick = { onSelect(key) },
-                    label = { Text(display, fontSize = 12.sp) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = AccentBlue,
-                        selectedLabelColor = Color.White
-                    )
-                )
-            }
-        }
-    }
-}
-
-@Composable
 fun PermissionSettingRow(
     label: String,
     description: String,
@@ -352,6 +419,60 @@ fun PermissionSettingRow(
             }
         } else {
             Icon(Icons.Default.CheckCircle, null, tint = SuccessGreen, modifier = Modifier.size(20.dp))
+        }
+    }
+}
+
+// ════════ النافذة المنبثقة الذكية (Generic Bottom Sheet) ════════
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun <T> SelectionBottomSheet(
+    title: String,
+    options: List<Pair<T, String>>,
+    selectedValue: T,
+    onSelect: (T) -> Unit,
+    onDismiss: () -> Unit
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = DarkCard,
+        dragHandle = { BottomSheetDefaults.DragHandle(color = Color.Gray) }
+    ) {
+        Column(modifier = Modifier.padding(bottom = 32.dp)) {
+            Text(
+                text = title,
+                color = Color.White,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)
+            )
+            
+            options.forEach { (item, display) ->
+                val isSelected = item == selectedValue
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            onSelect(item)
+                            onDismiss() // إغلاق النافذة تلقائياً بعد الاختيار
+                        }
+                        .background(if (isSelected) AccentBlue.copy(alpha = 0.15f) else Color.Transparent)
+                        .padding(horizontal = 24.dp, vertical = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = display,
+                        color = if (isSelected) AccentBlue else Color.White,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                        fontSize = 16.sp
+                    )
+                    if (isSelected) {
+                        Icon(Icons.Default.Check, contentDescription = "تم الاختيار", tint = AccentBlue)
+                    }
+                }
+            }
         }
     }
 }
