@@ -87,7 +87,7 @@ fun AppNavigation(
             }
         }
     ) { paddingValues ->
-        // إضافة الأنيميشن (التلاشي الناعم) عند التنقل بين الشاشات هنا 👇
+        // إضافة الأنيميشن (التلاشي الناعم) عند التنقل بين الشاشات
         NavHost(
             navController = navController,
             startDestination = startDestination,
@@ -215,8 +215,9 @@ fun AppBottomBar(
     navController: NavController
 ) {
     NavigationBar(
-        containerColor = Color(0xFF151515), 
-        contentColor = Color.Gray,
+        // استخدام ألوان ديناميكية للشريط السفلي بدلاً من الأسود الثابت
+        containerColor = MaterialTheme.colorScheme.surface, 
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
         tonalElevation = 0.dp
     ) {
         bottomNavItems.forEach { item ->
@@ -247,12 +248,11 @@ fun AppBottomBar(
                     )
                 },
                 colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = Color(0xFF8B5CF6), 
-                    selectedTextColor = Color(0xFF8B5CF6),
-                    unselectedIconColor = Color.Gray,
-                    unselectedTextColor = Color.Gray,
-                    // تفعيل الأنيميشن الجميل للخلفية عن طريق إعطائها لون شفاف بنسبة 20% 👇
-                    indicatorColor = Color(0xFF8B5CF6).copy(alpha = 0.2f) 
+                    selectedIconColor = MaterialTheme.colorScheme.primary, 
+                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) 
                 )
             )
         }
