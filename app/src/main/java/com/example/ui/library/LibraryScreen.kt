@@ -11,7 +11,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -60,12 +59,12 @@ fun LibraryScreen(
 
     Scaffold(
         topBar = {
-            Column {
+            Column(modifier = Modifier.background(MaterialTheme.colorScheme.background)) {
                 TopAppBar(
-                    title = { Text("المكتبة الكاملة", fontWeight = FontWeight.Black, color = Color.White) },
+                    title = { Text("المكتبة الكاملة", fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onBackground) },
                     navigationIcon = {
                         IconButton(onClick = onBack) {
-                            Icon(Icons.Default.ArrowBack, null, tint = Color.White)
+                            Icon(Icons.Default.ArrowBack, null, tint = MaterialTheme.colorScheme.onBackground)
                         }
                     },
                     actions = {
@@ -73,43 +72,45 @@ fun LibraryScreen(
                             Icon(
                                 if (viewMode == ViewMode.GRID) Icons.Default.ViewList else Icons.Default.GridView,
                                 contentDescription = null,
-                                tint = Color.White
+                                tint = MaterialTheme.colorScheme.onBackground
                             )
                         }
                         Box {
                             IconButton(onClick = { showSortMenu = true }) {
-                                Icon(Icons.Default.Sort, null, tint = Color.White)
+                                Icon(Icons.Default.Sort, null, tint = MaterialTheme.colorScheme.onBackground)
                             }
-                            DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
-                                Text("ترتيب حسب", style = MaterialTheme.typography.labelSmall, color = TextMuted, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
-                                HorizontalDivider(color = DarkBorder)
+                            DropdownMenu(
+                                expanded = showSortMenu, 
+                                onDismissRequest = { showSortMenu = false },
+                                modifier = Modifier.background(MaterialTheme.colorScheme.surface)
+                            ) {
+                                Text("ترتيب حسب", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outline)
                                 SortMode.values().forEach { mode ->
                                     DropdownMenuItem(
-                                        text = { Text(mode.label) },
+                                        text = { Text(mode.label, color = MaterialTheme.colorScheme.onSurface) },
                                         onClick = { sortMode = mode; showSortMenu = false },
                                         leadingIcon = {
                                             if (sortMode == mode)
-                                                Icon(Icons.Default.Check, null, tint = AccentBlue)
+                                                Icon(Icons.Default.Check, null, tint = MaterialTheme.colorScheme.primary)
                                         }
                                     )
                                 }
                             }
                         }
                     },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkSurface, titleContentColor = Color.White)
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
                 )
                 
-                // Search bar
                 SearchBar(
                     query = searchQuery,
                     onQueryChange = viewModel::setSearchQuery,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
                 )
 
-                // Category scroll bar
                 ScrollableTabRow(
                     selectedTabIndex = categories.indexOfFirst { it.first == selectedCategory }.coerceAtLeast(0),
-                    containerColor = DarkSurface,
+                    containerColor = MaterialTheme.colorScheme.surface,
                     edgePadding = 12.dp,
                     indicator = {},
                     divider = {}
@@ -122,21 +123,24 @@ fun LibraryScreen(
                             label = { Text(label, fontSize = 13.sp) },
                             modifier = Modifier.padding(horizontal = 4.dp),
                             colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = AccentBlue,
-                                selectedLabelColor = Color.White
+                                selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                labelColor = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         )
                     }
                 }
             }
-        }
+        },
+        containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
         if (displayFiles.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("📂", fontSize = 56.sp)
                     Spacer(Modifier.height(12.dp))
-                    Text("لا توجد ملفات في هذه الفئة", color = TextMuted)
+                    Text("لا توجد ملفات في هذه الفئة", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         } else if (viewMode == ViewMode.GRID) {
@@ -185,17 +189,10 @@ fun LibraryStats(files: List<PdfFile>) {
         modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Text("${files.size} ملف", color = TextMuted, fontSize = 13.sp)
+        Text("${files.size} ملف", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
         val totalSize = files.sumOf { it.size }
-        Text(formatSize(totalSize), color = TextMuted, fontSize = 13.sp)
+        Text(formatSize(totalSize), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
         val avgProgress = if (files.isEmpty()) 0f else files.map { it.readProgress }.average().toFloat()
-        Text("التقدم: ${(avgProgress * 100).toInt()}%", color = AccentBlue, fontSize = 13.sp)
+        Text("التقدم: ${(avgProgress * 100).toInt()}%", color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
     }
-}
-
-enum class SortMode(val label: String) {
-    DATE("حسب الأحدث"),
-    NAME("حسب الاسم أبجدياً"),
-    SIZE("حسب الحجم الأكبر"),
-    PROGRESS("حسب نسبة التقدم")
 }
