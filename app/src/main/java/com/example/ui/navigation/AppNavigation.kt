@@ -2,15 +2,11 @@ package com.example.ui.navigation
 
 import android.net.Uri
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
@@ -49,18 +45,19 @@ sealed class Screen(val route: String) {
     }
 }
 
+// 1. تبسيط عنصر التنقل وإزالة خاصية isFab
 data class BottomNavItem(
     val label: String,
     val icon: ImageVector,
-    val route: String,
-    val isFab: Boolean = false
+    val route: String
 )
 
+// 2. ترتيب العناصر لتطابق التصميم القياسي (من اليمين لليسار في التطبيقات العربية)
 val bottomNavItems = listOf(
-    BottomNavItem("Settings", Icons.Default.Settings, Screen.Settings.route),
-    BottomNavItem("Tools", Icons.Default.Build, Screen.Tools.route, isFab = true),
-    BottomNavItem("Folders", Icons.Default.Folder, Screen.Library.route),
     BottomNavItem("Home", Icons.Default.Home, Screen.Home.route),
+    BottomNavItem("Folders", Icons.Default.Folder, Screen.Library.route),
+    BottomNavItem("Tools", Icons.Default.Build, Screen.Tools.route),
+    BottomNavItem("Settings", Icons.Default.Settings, Screen.Settings.route)
 )
 
 val bottomNavRoutes = bottomNavItems.map { it.route }.toSet()
@@ -206,97 +203,54 @@ fun AppNavigation(
     }
 }
 
+// 3. تصميم الشريط السفلي الجديد والمطابق لتطبيق PDF Reader Pro
 @Composable
 fun AppBottomBar(
     currentRoute: String?,
     navController: NavController
 ) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(80.dp)
+    NavigationBar(
+        containerColor = Color(0xFF151515), // لون خلفية داكن جداً يطابق المنافس
+        contentColor = Color.Gray,
+        tonalElevation = 0.dp // لإزالة أي ظل إضافي وجعله مسطحاً
     ) {
-        // الشريط الرئيسي
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(65.dp)
-                .align(Alignment.BottomCenter),
-            color = MaterialTheme.colorScheme.surface,
-            shadowElevation = 12.dp,
-            shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 8.dp),
-                horizontalArrangement = Arrangement.SpaceAround,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                bottomNavItems.forEach { item ->
-                    if (item.isFab) {
-                        // مساحة فارغة للـ FAB
-                        Spacer(modifier = Modifier.width(56.dp))
-                    } else {
-                        val isSelected = currentRoute == item.route
-                        NavigationBarItem(
-                            selected = isSelected,
-                            onClick = {
-                                if (currentRoute != item.route) {
-                                    navController.navigate(item.route) {
-                                        popUpTo(Screen.Home.route) { saveState = true }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
-                                }
-                            },
-                            icon = {
-                                Icon(
-                                    imageVector = item.icon,
-                                    contentDescription = item.label,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            },
-                            label = {
-                                Text(
-                                    text = item.label,
-                                    fontSize = 11.sp
-                                )
-                            },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = MaterialTheme.colorScheme.primary,
-                                selectedTextColor = MaterialTheme.colorScheme.primary,
-                                unselectedIconColor = Color.Gray,
-                                unselectedTextColor = Color.Gray,
-                                indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
-                            )
-                        )
+        bottomNavItems.forEach { item ->
+            val isSelected = currentRoute == item.route
+            NavigationBarItem(
+                selected = isSelected,
+                onClick = {
+                    if (currentRoute != item.route) {
+                        navController.navigate(item.route) {
+                            // العودة للشاشة الرئيسية بدلاً من تراكم الشاشات
+                            popUpTo(Screen.Home.route) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
                     }
-                }
-            }
-        }
-
-        // FAB في المنتصف بيطلع فوق الشريط
-        FloatingActionButton(
-            onClick = {
-                navController.navigate(Screen.Tools.route) {
-                    popUpTo(Screen.Home.route) { saveState = true }
-                    launchSingleTop = true
-                    restoreState = true
-                }
-            },
-            modifier = Modifier
-                .size(56.dp)
-                .align(Alignment.TopCenter)
-                .clip(CircleShape),
-            containerColor = MaterialTheme.colorScheme.primary,
-            contentColor = Color.White,
-            elevation = FloatingActionButtonDefaults.elevation(8.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Default.Build,
-                contentDescription = "Tools",
-                modifier = Modifier.size(26.dp)
+                },
+                icon = {
+                    Icon(
+                        imageVector = item.icon,
+                        contentDescription = item.label,
+                        modifier = Modifier.size(24.dp)
+                    )
+                },
+                label = {
+                    Text(
+                        text = item.label,
+                        fontSize = 11.sp,
+                        maxLines = 1
+                    )
+                },
+                colors = NavigationBarItemDefaults.colors(
+                    // لون العنصر النشط (بنفسجي يشبه تطبيق المنافس)
+                    selectedIconColor = Color(0xFF8B5CF6), 
+                    selectedTextColor = Color(0xFF8B5CF6),
+                    unselectedIconColor = Color.Gray,
+                    unselectedTextColor = Color.Gray,
+                    // جعل لون خلفية الأيقونة النشطة شفافاً لتصميم أنظف (بدون الشكل البيضاوي)
+                    indicatorColor = Color.Transparent 
+                )
             )
         }
     }
