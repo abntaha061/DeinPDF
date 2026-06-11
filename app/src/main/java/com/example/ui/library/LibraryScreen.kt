@@ -16,8 +16,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.PdfFile
 import com.example.ui.components.SearchBar
-// تم استيراد المكونات المفقودة
-import com.example.ui.home.PdfGridCard 
+import com.example.ui.home.PdfGridCard
 import com.example.ui.home.PdfListItem
 import com.example.ui.home.ViewMode
 import com.example.ui.theme.*
@@ -195,7 +194,6 @@ fun LibraryStats(files: List<PdfFile>) {
     }
 }
 
-// دالة formatSize المفقودة
 fun formatSize(bytes: Long): String {
     return when {
         bytes < 1024 -> "$bytes B"
