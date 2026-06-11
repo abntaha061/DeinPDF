@@ -7,20 +7,17 @@ import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.net.Uri
 import android.provider.OpenableColumns
-import android.util.Base64
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.webkit.WebChromeClient
-import android.widget.Toast
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -71,6 +68,13 @@ fun ReaderScreen(
     var totalPages by remember { mutableStateOf(1) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
 
+    // جلب ألوان الثيم الديناميكية
+    val bgColor = MaterialTheme.colorScheme.background
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val onBgColor = MaterialTheme.colorScheme.onBackground
+    val surfaceColor = MaterialTheme.colorScheme.surface
+    val onSurfaceColor = MaterialTheme.colorScheme.onSurface
+
     val window = (context as? Activity)?.window
     LaunchedEffect(Unit) {
         window?.let {
@@ -116,7 +120,7 @@ fun ReaderScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0B0F19))
+            .background(bgColor) // استخدام اللون الديناميكي بدلاً من الأسود الثابت
     ) {
         when {
             isPreparingFile -> {
@@ -125,11 +129,11 @@ fun ReaderScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(color = Color(0xFF2196F3))
+                        CircularProgressIndicator(color = primaryColor)
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
                             text = "جاري تحميل وتجهيز الملف...",
-                            color = Color.White,
+                            color = onBgColor,
                             fontSize = 15.sp,
                             textAlign = TextAlign.Center
                         )
@@ -145,7 +149,7 @@ fun ReaderScreen(
                 ) {
                     Text(
                         text = "❌ حدث خطأ أثناء تحميل الملف:\n$copyError",
-                        color = Color.Red,
+                        color = MaterialTheme.colorScheme.error,
                         fontSize = 16.sp,
                         textAlign = TextAlign.Center
                     )
@@ -171,17 +175,21 @@ fun ReaderScreen(
                             settings.useWideViewPort = true
                             settings.loadWithOverviewMode = true
 
-                            setBackgroundColor(0xFF0B0F19.toInt())
+                            // جعل خلفية متصفح الـ PDF تتغير حسب الوضع الفاتح/الداكن
+                            setBackgroundColor(bgColor.toArgb())
 
                             addJavascriptInterface(object {
+                                
                                 @JavascriptInterface
                                 fun getPdfBase64(): String {
-                                    return try {
-                                        val file = File(tempFilePath ?: return "")
-                                        if (file.exists()) {
-                                            Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
-                                        } else ""
-                                    } catch (e: Exception) { "" }
+                                    // قمنا بتعطيل الـ Base64 لأنه يسبب انهيار للكتب الكبيرة (OutOfMemory)
+                                    return "" 
+                                }
+
+                                @JavascriptInterface
+                                fun getPdfUrl(): String {
+                                    // هذه الدالة الجديدة السريعة والآمنة جداً لجلب مسار الملف مباشرة
+                                    return "file://" + (tempFilePath ?: "")
                                 }
 
                                 @JavascriptInterface
@@ -202,7 +210,7 @@ fun ReaderScreen(
                                 fun onLinkIntercepted(url: String) {
                                     (ctx as? Activity)?.runOnUiThread {
                                         if (url.contains("translate_tts", ignoreCase = true) || url.endsWith(".mp3", ignoreCase = true)) {
-                                            Toast.makeText(ctx, "🎧 جاري النطق بالألمانية...", Toast.LENGTH_SHORT).show()
+                                            // تم حذف Toast "جاري النطق..."
                                             try {
                                                 MediaPlayer().apply {
                                                     setAudioAttributes(
@@ -214,7 +222,6 @@ fun ReaderScreen(
                                                     setDataSource(url)
                                                     setOnPreparedListener { mp -> mp.start() }
                                                     setOnErrorListener { mp, _, _ ->
-                                                        Toast.makeText(ctx, "فشل النطق التلقائي", Toast.LENGTH_SHORT).show()
                                                         mp.release()
                                                         true
                                                     }
@@ -225,14 +232,14 @@ fun ReaderScreen(
                                                 e.printStackTrace()
                                             }
                                         } else if (url.startsWith("http://", ignoreCase = true) || url.startsWith("https://", ignoreCase = true)) {
+                                            // تم حذف Toast "جاري فتح Arabdict..."
                                             try {
                                                 val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
                                                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                                 }
                                                 ctx.startActivity(intent)
-                                                Toast.makeText(ctx, "🌐 جاري فتح Arabdict...", Toast.LENGTH_SHORT).show()
                                             } catch (e: Exception) {
-                                                Toast.makeText(ctx, "عذراً، لا يمكن فتح الرابط", Toast.LENGTH_SHORT).show()
+                                                android.widget.Toast.makeText(ctx, "عذراً، لا يمكن فتح الرابط", android.widget.Toast.LENGTH_SHORT).show()
                                             }
                                         }
                                     }
@@ -254,7 +261,7 @@ fun ReaderScreen(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .fillMaxWidth()
-                            .background(Color.Black.copy(alpha = 0.7f))
+                            .background(surfaceColor.copy(alpha = 0.95f)) // لون شريط سفلي متجاوب
                             .padding(horizontal = 16.dp, vertical = 8.dp)
                     ) {
                         Row(
@@ -264,7 +271,7 @@ fun ReaderScreen(
                         ) {
                             Text(
                                 text = "$currentPage / $totalPages",
-                                color = Color.White,
+                                color = onSurfaceColor,
                                 fontSize = 14.sp
                             )
                         }
@@ -275,9 +282,9 @@ fun ReaderScreen(
                             onValueChangeFinished = { },
                             valueRange = 1f..totalPages.toFloat(),
                             colors = SliderDefaults.colors(
-                                thumbColor = Color.White,
-                                activeTrackColor = Color(0xFF2196F3),
-                                inactiveTrackColor = Color.White.copy(alpha = 0.3f)
+                                thumbColor = primaryColor,
+                                activeTrackColor = primaryColor,
+                                inactiveTrackColor = onSurfaceColor.copy(alpha = 0.2f)
                             ),
                             modifier = Modifier.fillMaxWidth()
                         )
