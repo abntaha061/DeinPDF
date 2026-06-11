@@ -8,7 +8,8 @@
         html, body {
             margin: 0;
             padding: 0;
-            background-color: #0B0F19;
+            /* جعلنا الخلفية شفافة لكي تتجاوب مع الوضع الفاتح والداكن من التطبيق */
+            background-color: transparent; 
             width: 100%;
         }
         #viewer-container {
@@ -20,7 +21,7 @@
         }
         .page-container {
             position: relative;
-            background-color: white;
+            background-color: white; /* لون ورقة الـ PDF يظل أبيض */
             margin-bottom: 8px;
             box-shadow: 0 4px 8px rgba(0,0,0,0.5);
             display: inline-block;
@@ -69,22 +70,19 @@
         let totalPages = 0;
         let pageHeights = [];
 
-        const base64Data = AndroidPdfBridge.getPdfBase64();
+        // استخدام المسار المباشر بدلاً من Base64 لمنع انهيار الذاكرة مع الملفات الكبيرة
+        const pdfUrl = AndroidPdfBridge.getPdfUrl();
         
-        if (base64Data) {
-            const raw = window.atob(base64Data);
-            const array = new Uint8Array(len = raw.length);
-            for(let i = 0; i < len; i++) {
-                array[i] = raw.charCodeAt(i);
-            }
-
-            pdfjsLib.getDocument({data: array}).promise.then(function(pdf) {
+        if (pdfUrl && pdfUrl !== "") {
+            pdfjsLib.getDocument(pdfUrl).promise.then(function(pdf) {
                 totalPages = pdf.numPages;
                 AndroidPdfBridge.onTotalPages(totalPages);
                 const container = document.getElementById('viewer-container');
                 for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
                     renderPage(pdf, pageNum, container);
                 }
+            }).catch(function(error) {
+                console.error("Error loading PDF: ", error);
             });
         }
 
