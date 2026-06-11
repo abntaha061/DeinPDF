@@ -2,7 +2,6 @@ package com.example.ui.library
 
 import android.net.Uri
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.lazy.grid.*
@@ -17,9 +16,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.PdfFile
 import com.example.ui.components.SearchBar
-import com.example.ui.home.PdfGridCard
+// تم استيراد المكونات المفقودة
+import com.example.ui.home.PdfGridCard 
 import com.example.ui.home.PdfListItem
 import com.example.ui.home.ViewMode
+import com.example.ui.theme.*
 import com.example.viewmodel.MainViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -191,6 +192,15 @@ fun LibraryStats(files: List<PdfFile>) {
         Text(formatSize(totalSize), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
         val avgProgress = if (files.isEmpty()) 0f else files.map { it.readProgress }.average().toFloat()
         Text("التقدم: ${(avgProgress * 100).toInt()}%", color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
+    }
+}
+
+// دالة formatSize المفقودة
+fun formatSize(bytes: Long): String {
+    return when {
+        bytes < 1024 -> "$bytes B"
+        bytes < 1024 * 1024 -> "${bytes / 1024} KB"
+        else -> "${"%.1f".format(bytes / 1024.0 / 1024.0)} MB"
     }
 }
 
