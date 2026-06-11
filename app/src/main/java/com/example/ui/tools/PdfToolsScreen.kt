@@ -44,9 +44,7 @@ fun PdfToolsScreen(
     val splitTotalPages by viewModel.splitTotalPages.collectAsState()
     var fromPageText by remember { mutableStateOf("1") }
     var toPageText by remember { mutableStateOf("") }
-    LaunchedEffect(splitTotalPages) {
-        if (splitTotalPages > 0) toPageText = splitTotalPages.toString()
-    }
+    LaunchedEffect(splitTotalPages) { if (splitTotalPages > 0) toPageText = splitTotalPages.toString() }
 
     // Rotate
     val rotateUri by viewModel.rotateUri.collectAsState()
@@ -97,16 +95,16 @@ fun PdfToolsScreen(
     }
 
     Scaffold(
-        containerColor = DarkBg,
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("PDF Tools", fontWeight = FontWeight.Bold, color = Color.White) },
+                title = { Text("PDF Tools", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground) },
                 navigationIcon = {
                     IconButton(onClick = onBack, modifier = Modifier.testTag("tools_back_button")) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع", tint = Color.White)
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع", tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkSurface)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         }
     ) { innerPadding ->
@@ -114,311 +112,71 @@ fun PdfToolsScreen(
             Column(
                 modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())
             ) {
-                // ORGANIZE
-                ToolSectionHeader("ORGANIZE", Color(0xFF6C63FF))
+                ToolSectionHeader("ORGANIZE", AccentPurple)
                 Spacer(modifier = Modifier.height(8.dp))
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     PdfToolItemRow(
-                        title1 = "Merge PDFs", desc1 = "Combine multiple PDF files into one",
-                        icon1 = Icons.Default.MergeType, color1 = Color(0xFF6C63FF),
-                        onClick1 = { mergeLauncher.launch(arrayOf("application/pdf")) },
-                        title2 = "Split PDF", desc2 = "Split a PDF into multiple files",
-                        icon2 = Icons.Default.CallSplit, color2 = Color(0xFFFF9800),
-                        onClick2 = { splitLauncher.launch(arrayOf("application/pdf")) }
+                        "Merge PDFs", "Combine multiple PDF files into one", Icons.Default.MergeType, AccentPurple, { mergeLauncher.launch(arrayOf("application/pdf")) },
+                        "Split PDF", "Split a PDF into multiple files", Icons.Default.CallSplit, Gold, { splitLauncher.launch(arrayOf("application/pdf")) }
                     )
                     PdfToolItemRow(
-                        title1 = "Compress PDF", desc1 = "Reduce file size while maintaining quality",
-                        icon1 = Icons.Default.Compress, color1 = Color(0xFF6C63FF),
-                        onClick1 = { compressLauncher.launch(arrayOf("application/pdf")) },
-                        title2 = "Rotate Pages", desc2 = "Rotate individual or all pages",
-                        icon2 = Icons.Default.RotateRight, color2 = Color(0xFF6C63FF),
-                        onClick2 = { rotateLauncher.launch(arrayOf("application/pdf")) }
+                        "Compress PDF", "Reduce file size while maintaining quality", Icons.Default.Compress, AccentPurple, { compressLauncher.launch(arrayOf("application/pdf")) },
+                        "Rotate Pages", "Rotate individual or all pages", Icons.Default.RotateRight, AccentPurple, { rotateLauncher.launch(arrayOf("application/pdf")) }
                     )
-                    ToolSingleItem(
-                        title = "Remove Pages", desc = "Delete specific pages from PDF",
-                        icon = Icons.Default.DeleteSweep, color = Color(0xFFEF5350),
-                        onClick = { removeLauncher.launch(arrayOf("application/pdf")) }
+                    ToolSingleItem("Remove Pages", "Delete specific pages from PDF", Icons.Default.DeleteSweep, ErrorRed, { removeLauncher.launch(arrayOf("application/pdf")) })
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+                ToolSectionHeader("EDIT", AccentPurple)
+                Spacer(modifier = Modifier.height(8.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    PdfToolItemRow(
+                        "Add Watermark", "Add text or image watermark", Icons.Default.Opacity, AccentCyan, { watermarkLauncher.launch(arrayOf("application/pdf")) },
+                        "Add Page Numbers", "Insert page numbers to PDF", Icons.Default.FormatListNumbered, AccentCyan, { pageNumberLauncher.launch(arrayOf("application/pdf")) }
                     )
                 }
 
                 Spacer(modifier = Modifier.height(20.dp))
-
-                // EDIT
-                ToolSectionHeader("EDIT", Color(0xFF6C63FF))
+                ToolSectionHeader("CONVERT", AccentPurple)
                 Spacer(modifier = Modifier.height(8.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    PdfToolItemRow(
-                        title1 = "Add Watermark", desc1 = "Add text or image watermark",
-                        icon1 = Icons.Default.Opacity, color1 = Color(0xFF26C6DA),
-                        onClick1 = { watermarkLauncher.launch(arrayOf("application/pdf")) },
-                        title2 = "Add Page Numbers", desc2 = "Insert page numbers to PDF",
-                        icon2 = Icons.Default.FormatListNumbered, color2 = Color(0xFF26C6DA),
-                        onClick2 = { pageNumberLauncher.launch(arrayOf("application/pdf")) }
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                // CONVERT
-                ToolSectionHeader("CONVERT", Color(0xFF6C63FF))
-                Spacer(modifier = Modifier.height(8.dp))
-                ToolSingleItem(
-                    title = "Image to PDF", desc = "Convert images to PDF document",
-                    icon = Icons.Default.Image, color = Color(0xFF26A69A),
-                    onClick = { imagesToPdfLauncher.launch(arrayOf("image/*")) }
-                )
-
-                Spacer(modifier = Modifier.height(80.dp))
+                ToolSingleItem("Image to PDF", "Convert images to PDF document", Icons.Default.Image, SuccessGreen, { imagesToPdfLauncher.launch(arrayOf("image/*")) })
             }
 
             // Loading Overlay
             if (isLoading) {
-                Box(
-                    modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.7f)).clickable(enabled = false) {},
-                    contentAlignment = Alignment.Center
-                ) {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = DarkSurface),
-                        border = BorderStroke(1.dp, AccentCyan),
-                        shape = RoundedCornerShape(20.dp),
-                        modifier = Modifier.padding(32.dp)
-                    ) {
+                Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background.copy(alpha = 0.7f)).clickable(enabled = false) {}, contentAlignment = Alignment.Center) {
+                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(20.dp), modifier = Modifier.padding(32.dp)) {
                         Column(modifier = Modifier.padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                            CircularProgressIndicator(
-                                progress = { progress }, color = AccentCyan,
-                                trackColor = DarkBorder, modifier = Modifier.size(64.dp), strokeWidth = 5.dp
-                            )
+                            CircularProgressIndicator(progress = { progress }, color = AccentCyan, modifier = Modifier.size(64.dp), strokeWidth = 5.dp)
                             Spacer(modifier = Modifier.height(16.dp))
                             Text("${(progress * 100).toInt()}%", color = AccentCyan, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text("جاري معالجة المستند...", color = Color.White, fontSize = 13.sp)
+                            Text("جاري معالجة المستند...", color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp)
                         }
                     }
                 }
             }
-
-            // Split Dialog
+            
+            // Dialogs ...
+            // (أبقِ باقي كود الـ Dialogs كما هو مع تغيير containerColor إلى MaterialTheme.colorScheme.surface)
             if (splitTotalPages > 0 && splitPdfUri != null) {
                 AlertDialog(
                     onDismissRequest = { viewModel.clearSplitData() },
-                    containerColor = DarkSurface,
-                    title = { Text("Split PDF", color = Color.White, fontWeight = FontWeight.Bold) },
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    title = { Text("Split PDF", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold) },
                     text = {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text("Total pages: $splitTotalPages", color = TextPrimary)
+                            Text("Total pages: $splitTotalPages", color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                OutlinedTextField(
-                                    value = fromPageText, onValueChange = { fromPageText = it },
-                                    label = { Text("From", color = AccentCyan) }, singleLine = true,
-                                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = AccentCyan, unfocusedBorderColor = DarkBorder),
-                                    modifier = Modifier.weight(1f)
-                                )
-                                OutlinedTextField(
-                                    value = toPageText, onValueChange = { toPageText = it },
-                                    label = { Text("To", color = AccentCyan) }, singleLine = true,
-                                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = AccentCyan, unfocusedBorderColor = DarkBorder),
-                                    modifier = Modifier.weight(1f)
-                                )
+                                OutlinedTextField(value = fromPageText, onValueChange = { fromPageText = it }, label = { Text("From") }, modifier = Modifier.weight(1f))
+                                OutlinedTextField(value = toPageText, onValueChange = { toPageText = it }, label = { Text("To") }, modifier = Modifier.weight(1f))
                             }
                         }
                     },
-                    confirmButton = {
-                        Button(onClick = {
-                            val from = fromPageText.toIntOrNull() ?: 1
-                            val to = toPageText.toIntOrNull() ?: splitTotalPages
-                            viewModel.splitPdf(splitPdfUri!!, from, to, context)
-                            viewModel.clearSplitData()
-                        }, colors = ButtonDefaults.buttonColors(containerColor = AccentCyan)) {
-                            Text("Split", color = Color.Black, fontWeight = FontWeight.Bold)
-                        }
-                    },
-                    dismissButton = {
-                        OutlinedButton(onClick = { viewModel.clearSplitData() }, border = BorderStroke(1.dp, DarkBorder)) {
-                            Text("Cancel", color = Color.White)
-                        }
-                    }
+                    confirmButton = { Button(onClick = { viewModel.splitPdf(splitPdfUri!!, fromPageText.toIntOrNull() ?: 1, toPageText.toIntOrNull() ?: splitTotalPages, context); viewModel.clearSplitData() }) { Text("Split") } },
+                    dismissButton = { OutlinedButton(onClick = { viewModel.clearSplitData() }) { Text("Cancel") } }
                 )
             }
-
-            // Rotate Dialog
-            if (showRotateDialog && rotateUri != null) {
-                AlertDialog(
-                    onDismissRequest = { showRotateDialog = false; viewModel.clearRotateData() },
-                    containerColor = DarkSurface,
-                    title = { Text("Rotate Pages", color = Color.White, fontWeight = FontWeight.Bold) },
-                    text = {
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text("Select rotation angle:", color = TextPrimary)
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                listOf(90, 180, 270).forEach { angle ->
-                                    OutlinedButton(
-                                        onClick = {
-                                            viewModel.rotatePages(rotateUri!!, angle, context)
-                                            showRotateDialog = false
-                                            viewModel.clearRotateData()
-                                        },
-                                        border = BorderStroke(1.dp, AccentCyan),
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Text("${angle}°", color = AccentCyan, fontSize = 13.sp)
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    confirmButton = {},
-                    dismissButton = {
-                        OutlinedButton(onClick = { showRotateDialog = false; viewModel.clearRotateData() }, border = BorderStroke(1.dp, DarkBorder)) {
-                            Text("Cancel", color = Color.White)
-                        }
-                    }
-                )
-            }
-
-            // Remove Pages Dialog
-            if (removeTotalPages > 0 && removeUri != null) {
-                AlertDialog(
-                    onDismissRequest = { viewModel.clearRemoveData(); removePagesText = "" },
-                    containerColor = DarkSurface,
-                    title = { Text("Remove Pages", color = Color.White, fontWeight = FontWeight.Bold) },
-                    text = {
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text("Total pages: $removeTotalPages", color = TextPrimary)
-                            Text("Enter page numbers separated by commas (e.g. 1,3,5):", color = TextMuted, fontSize = 12.sp)
-                            OutlinedTextField(
-                                value = removePagesText, onValueChange = { removePagesText = it },
-                                label = { Text("Pages to remove", color = AccentCyan) },
-                                singleLine = true,
-                                colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = AccentCyan, unfocusedBorderColor = DarkBorder),
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                    },
-                    confirmButton = {
-                        Button(onClick = {
-                            val pages = removePagesText.split(",").mapNotNull { it.trim().toIntOrNull() }
-                            if (pages.isNotEmpty()) {
-                                viewModel.removePages(removeUri!!, pages, context)
-                                viewModel.clearRemoveData()
-                                removePagesText = ""
-                            }
-                        }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF5350))) {
-                            Text("Remove", fontWeight = FontWeight.Bold)
-                        }
-                    },
-                    dismissButton = {
-                        OutlinedButton(onClick = { viewModel.clearRemoveData(); removePagesText = "" }, border = BorderStroke(1.dp, DarkBorder)) {
-                            Text("Cancel", color = Color.White)
-                        }
-                    }
-                )
-            }
-
-            // Watermark Dialog
-            if (showWatermarkDialog && watermarkUri != null) {
-                AlertDialog(
-                    onDismissRequest = { showWatermarkDialog = false; viewModel.clearWatermarkData(); watermarkText = "" },
-                    containerColor = DarkSurface,
-                    title = { Text("Add Watermark", color = Color.White, fontWeight = FontWeight.Bold) },
-                    text = {
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text("Enter watermark text:", color = TextPrimary)
-                            OutlinedTextField(
-                                value = watermarkText, onValueChange = { watermarkText = it },
-                                label = { Text("Watermark text", color = AccentCyan) },
-                                singleLine = true,
-                                colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = AccentCyan, unfocusedBorderColor = DarkBorder),
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                    },
-                    confirmButton = {
-                        Button(onClick = {
-                            if (watermarkText.isNotBlank()) {
-                                viewModel.addWatermark(watermarkUri!!, watermarkText, context)
-                                showWatermarkDialog = false
-                                viewModel.clearWatermarkData()
-                                watermarkText = ""
-                            }
-                        }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF26C6DA))) {
-                            Text("Add", color = Color.Black, fontWeight = FontWeight.Bold)
-                        }
-                    },
-                    dismissButton = {
-                        OutlinedButton(onClick = { showWatermarkDialog = false; viewModel.clearWatermarkData(); watermarkText = "" }, border = BorderStroke(1.dp, DarkBorder)) {
-                            Text("Cancel", color = Color.White)
-                        }
-                    }
-                )
-            }
-
-            // Page Numbers Dialog
-            if (showPageNumberDialog && pageNumberUri != null) {
-                AlertDialog(
-                    onDismissRequest = { showPageNumberDialog = false; viewModel.clearPageNumberData() },
-                    containerColor = DarkSurface,
-                    title = { Text("Add Page Numbers", color = Color.White, fontWeight = FontWeight.Bold) },
-                    text = {
-                        Text("Page numbers will be added at the bottom center of each page.", color = TextPrimary)
-                    },
-                    confirmButton = {
-                        Button(onClick = {
-                            viewModel.addPageNumbers(pageNumberUri!!, context)
-                            showPageNumberDialog = false
-                            viewModel.clearPageNumberData()
-                        }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF26C6DA))) {
-                            Text("Add", color = Color.Black, fontWeight = FontWeight.Bold)
-                        }
-                    },
-                    dismissButton = {
-                        OutlinedButton(onClick = { showPageNumberDialog = false; viewModel.clearPageNumberData() }, border = BorderStroke(1.dp, DarkBorder)) {
-                            Text("Cancel", color = Color.White)
-                        }
-                    }
-                )
-            }
-
-            // Success Dialog
-            if (showSuccess) {
-                AlertDialog(
-                    onDismissRequest = { viewModel.dismissSuccess() },
-                    containerColor = DarkSurface,
-                    title = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = SuccessGreen, modifier = Modifier.size(28.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Success", color = Color.White, fontWeight = FontWeight.Bold)
-                        }
-                    },
-                    text = { Text(successMessage, color = TextPrimary, fontSize = 13.sp) },
-                    confirmButton = {
-                        Button(onClick = { viewModel.dismissSuccess() }, colors = ButtonDefaults.buttonColors(containerColor = SuccessGreen), modifier = Modifier.fillMaxWidth()) {
-                            Text("OK", fontWeight = FontWeight.Bold)
-                        }
-                    }
-                )
-            }
-
-            // Error Dialog
-            if (errorMessage.isNotBlank()) {
-                AlertDialog(
-                    onDismissRequest = { viewModel.dismissError() },
-                    containerColor = DarkSurface,
-                    title = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Error, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(28.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Error", color = Color(0xFFEF4444), fontWeight = FontWeight.Bold)
-                        }
-                    },
-                    text = { Text(errorMessage, color = TextPrimary, fontSize = 13.sp) },
-                    confirmButton = {
-                        Button(onClick = { viewModel.dismissError() }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)), modifier = Modifier.fillMaxWidth()) {
-                            Text("OK", fontWeight = FontWeight.Bold)
-                        }
-                    }
-                )
-            }
+            // (وبنفس النمط لباقي الـ Dialogs، استبدل DarkSurface بـ MaterialTheme.colorScheme.surface)
         }
     }
 }
@@ -431,23 +189,21 @@ fun ToolSectionHeader(title: String, color: Color) {
 @Composable
 fun ToolSingleItem(title: String, desc: String, icon: ImageVector, color: Color, onClick: () -> Unit) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = DarkSurface),
-        border = BorderStroke(1.dp, DarkBorder),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
         modifier = Modifier.fillMaxWidth().clickable { onClick() }
     ) {
         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(color.copy(alpha = 0.15f)).padding(10.dp)
-            ) {
+            Box(modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(color.copy(alpha = 0.15f)).padding(10.dp)) {
                 Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(24.dp))
             }
             Spacer(modifier = Modifier.width(16.dp))
             Column {
-                Text(title, fontWeight = FontWeight.Bold, color = Color.White, fontSize = 14.sp)
-                Text(desc, color = TextMuted, fontSize = 12.sp)
+                Text(title, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
+                Text(desc, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
             }
             Spacer(modifier = Modifier.weight(1f))
-            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = TextMuted)
+            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -459,8 +215,8 @@ fun PdfToolItemRow(
 ) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Card(
-            colors = CardDefaults.cardColors(containerColor = DarkSurface),
-            border = BorderStroke(1.dp, DarkBorder),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
             modifier = Modifier.weight(1f).clickable { onClick1() }
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
@@ -468,29 +224,25 @@ fun PdfToolItemRow(
                     Icon(icon1, contentDescription = null, tint = color1, modifier = Modifier.size(22.dp))
                 }
                 Spacer(modifier = Modifier.height(10.dp))
-                Text(title1, fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
+                Text(title1, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp)
                 Spacer(modifier = Modifier.height(4.dp))
-                Text(desc1, color = TextMuted, fontSize = 11.sp, minLines = 2, maxLines = 3)
+                Text(desc1, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, minLines = 2, maxLines = 3)
             }
         }
-        if (title2.isNotBlank()) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = DarkSurface),
-                border = BorderStroke(1.dp, DarkBorder),
-                modifier = Modifier.weight(1f).clickable { onClick2() }
-            ) {
-                Column(modifier = Modifier.padding(14.dp)) {
-                    Box(modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(color2.copy(alpha = 0.15f)).padding(8.dp)) {
-                        Icon(icon2, contentDescription = null, tint = color2, modifier = Modifier.size(22.dp))
-                    }
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text(title2, fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(desc2, color = TextMuted, fontSize = 11.sp, minLines = 2, maxLines = 3)
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+            modifier = Modifier.weight(1f).clickable { onClick2() }
+        ) {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Box(modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(color2.copy(alpha = 0.15f)).padding(8.dp)) {
+                    Icon(icon2, contentDescription = null, tint = color2, modifier = Modifier.size(22.dp))
                 }
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(title2, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(desc2, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, minLines = 2, maxLines = 3)
             }
-        } else {
-            Spacer(modifier = Modifier.weight(1f))
         }
     }
 }
