@@ -41,7 +41,6 @@ fun SettingsScreen(
         ActivityResultContracts.StartActivityForResult()
     ) {}
 
-    // حالات (States) للتحكم في ظهور النوافذ المنبثقة السفلية
     var showThemeSheet by remember { mutableStateOf(false) }
     var showSourceLangSheet by remember { mutableStateOf(false) }
     var showTargetLangSheet by remember { mutableStateOf(false) }
@@ -49,7 +48,6 @@ fun SettingsScreen(
     var showScrollSheet by remember { mutableStateOf(false) }
     var showPdfModeSheet by remember { mutableStateOf(false) }
 
-    // حالات (States) للخيارات (مؤقتة حتى يتم ربطها بالـ ViewModel لاحقاً)
     var sourceLang by remember { mutableStateOf("de") }
     var targetLang by remember { mutableStateOf("ar") }
     var voice by remember { mutableStateOf("female") }
@@ -59,16 +57,16 @@ fun SettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("الإعدادات والتخصيص", fontWeight = FontWeight.Black, color = Color.White) },
+                title = { Text("الإعدادات والتخصيص", fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onBackground) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, null, tint = Color.White)
+                        Icon(Icons.Default.ArrowBack, null, tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkSurface, titleContentColor = Color.White)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         },
-        containerColor = DarkSurface // لضمان لون الخلفية المناسب
+        containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
         LazyColumn(
             modifier = Modifier
@@ -77,9 +75,7 @@ fun SettingsScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // ===== THEME =====
             item { SettingsSectionHeader("🎨 المظهر والعرض") }
-
             item {
                 SettingsCard {
                     SettingsSelectionRow(
@@ -90,16 +86,14 @@ fun SettingsScreen(
                 }
             }
 
-            // ===== PERMISSIONS =====
             item { SettingsSectionHeader("🔒 الأذونات") }
-
             item {
                 SettingsCard {
                     PermissionSettingRow(
                         label = "الوصول للملفات",
                         description = "قراءة وحفظ ملفات PDF الخاصة بك",
                         icon = Icons.Default.Folder,
-                        isGranted = true, // default allowed internally
+                        isGranted = true, 
                         onGrant = {
                             val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                                 data = Uri.fromParts("package", context.packageName, null)
@@ -107,7 +101,7 @@ fun SettingsScreen(
                             settingsLauncher.launch(intent)
                         }
                     )
-                    HorizontalDivider(color = DarkBorder, modifier = Modifier.padding(vertical = 8.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(vertical = 8.dp))
                     PermissionSettingRow(
                         label = "إدارة كل الملفات (Android 11+)",
                         description = "للوصول الشامل للذاكرة في الأجهزة الحديثة",
@@ -130,9 +124,7 @@ fun SettingsScreen(
                 }
             }
 
-            // ===== TRANSLATION =====
             item { SettingsSectionHeader("🌍 الترجمة والنطق") }
-
             item {
                 SettingsCard {
                     SettingsSelectionRow(
@@ -140,13 +132,13 @@ fun SettingsScreen(
                         selectedValueDisplay = when(sourceLang) { "de" -> "🇩🇪 ألماني"; "ar" -> "🇸🇦 عربي"; else -> "🤖 تلقائي" },
                         onClick = { showSourceLangSheet = true }
                     )
-                    HorizontalDivider(color = DarkBorder, modifier = Modifier.padding(vertical = 8.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(vertical = 8.dp))
                     SettingsSelectionRow(
                         label = "لغة الترجمة الفرعية",
                         selectedValueDisplay = when(targetLang) { "ar" -> "🇸🇦 عربي"; "de" -> "🇩🇪 ألماني"; else -> "🇬🇧 إنجليزي" },
                         onClick = { showTargetLangSheet = true }
                     )
-                    HorizontalDivider(color = DarkBorder, modifier = Modifier.padding(vertical = 8.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(vertical = 8.dp))
                     SettingsSelectionRow(
                         label = "صوت القارئ الافتراضي",
                         selectedValueDisplay = if (voice == "female") "أنثى (افتراضي)" else "ذكر",
@@ -155,44 +147,41 @@ fun SettingsScreen(
                 }
             }
 
-            // TTS Speed
             item {
                 var ttsSpeed by remember { mutableStateOf(1f) }
                 SettingsCard {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("سرعة المساعد الصوتي", color = Color.White)
-                        Text("${ttsSpeed}x", color = AccentBlue, fontWeight = FontWeight.Bold)
+                        Text("سرعة المساعد الصوتي", color = MaterialTheme.colorScheme.onSurface)
+                        Text("${ttsSpeed}x", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                     }
                     Slider(
                         value = ttsSpeed,
                         onValueChange = { ttsSpeed = (it * 4).toInt() / 4f },
                         valueRange = 0.5f..2f,
                         steps = 5,
-                        colors = SliderDefaults.colors(thumbColor = AccentBlue, activeTrackColor = AccentBlue)
+                        colors = SliderDefaults.colors(thumbColor = MaterialTheme.colorScheme.primary, activeTrackColor = MaterialTheme.colorScheme.primary)
                     )
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("0.5x", color = TextMuted, fontSize = 11.sp)
-                        Text("1.0x (طبيعي)", color = TextMuted, fontSize = 11.sp)
-                        Text("2.0x", color = TextMuted, fontSize = 11.sp)
+                        Text("0.5x", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                        Text("1.0x (طبيعي)", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                        Text("2.0x", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
                     }
                 }
             }
 
-            // ===== READING =====
             item { SettingsSectionHeader("📖 إعدادات القراءة") }
-
             item {
                 var fontSize by remember { mutableStateOf(16) }
                 SettingsCard {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("حجم خط الترجمة والملاحظات", color = Color.White)
-                        Text("${fontSize}pt", color = AccentBlue, fontWeight = FontWeight.Bold)
+                        Text("حجم خط الترجمة والملاحظات", color = MaterialTheme.colorScheme.onSurface)
+                        Text("${fontSize}pt", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                     }
                     Slider(
                         value = fontSize.toFloat(),
                         onValueChange = { fontSize = it.toInt() },
                         valueRange = 8f..32f,
-                        colors = SliderDefaults.colors(thumbColor = AccentBlue, activeTrackColor = AccentBlue)
+                        colors = SliderDefaults.colors(thumbColor = MaterialTheme.colorScheme.primary, activeTrackColor = MaterialTheme.colorScheme.primary)
                     )
                 }
             }
@@ -204,7 +193,7 @@ fun SettingsScreen(
                         selectedValueDisplay = if (scrollDirection == "vertical") "↕ رأسي" else "↔ أفقي",
                         onClick = { showScrollSheet = true }
                     )
-                    HorizontalDivider(color = DarkBorder, modifier = Modifier.padding(vertical = 8.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(vertical = 8.dp))
                     SettingsSelectionRow(
                         label = "وضع صفحات PDF",
                         selectedValueDisplay = when(pdfMode) { "continuous" -> "متواصل (Continuous)"; "single" -> "صفحة بصفحة"; else -> "وضع كتاب" },
@@ -213,22 +202,18 @@ fun SettingsScreen(
                 }
             }
 
-            // ===== ACCESSIBILITY =====
             item { SettingsSectionHeader("♿ إمكانية الوصول") }
-
             item {
                 var highContrast by remember { mutableStateOf(false) }
                 var reduceMotion by remember { mutableStateOf(false) }
                 SettingsCard {
                     SettingsSwitchRow("تباين ألوان عالٍ (High Contrast)", "تسهيل القراءة وتوضيح النصوص الضعيفة", Icons.Default.Contrast, highContrast) { highContrast = it }
-                    HorizontalDivider(color = DarkBorder, modifier = Modifier.padding(vertical = 8.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(vertical = 8.dp))
                     SettingsSwitchRow("تقليل الحركة التفاعلية", "توفير بطارية الجهاز وتقليل المؤثرات الحركية", Icons.Default.Animation, reduceMotion) { reduceMotion = it }
                 }
             }
 
-            // ===== SECURITY =====
             item { SettingsSectionHeader("🔐 الخصوصية والأمان") }
-
             item {
                 var screenSecurity by remember { mutableStateOf(false) }
                 SettingsCard {
@@ -238,31 +223,28 @@ fun SettingsScreen(
                         Icons.Default.Fingerprint,
                         appLockEnabled
                     ) { viewModel.setAppLock(it) }
-                    HorizontalDivider(color = DarkBorder, modifier = Modifier.padding(vertical = 8.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(vertical = 8.dp))
                     SettingsSwitchRow("إخفاء محتوى الشاشة الأخيرة", "منع لقطات الشاشة أو إظهار المحتويات في التطبيقات المفتوحة", Icons.Default.VisibilityOff, screenSecurity) { screenSecurity = it }
                 }
             }
 
-            // ===== ABOUT =====
             item { SettingsSectionHeader("ℹ️ عن التطبيق") }
             item {
                 SettingsCard {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("الإصدار الحالي", color = Color.White)
-                        Text("2.0.1 (تحديث ذكي)", color = TextMuted)
+                        Text("الإصدار الحالي", color = MaterialTheme.colorScheme.onSurface)
+                        Text("2.0.1 (تحديث ذكي)", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Spacer(Modifier.height(8.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("اسم المطور", color = Color.White)
-                        Text("محمد (Mohammed)", color = AccentBlue)
+                        Text("اسم المطور", color = MaterialTheme.colorScheme.onSurface)
+                        Text("محمد (Mohammed)", color = MaterialTheme.colorScheme.primary)
                     }
                 }
             }
 
             item { Spacer(Modifier.height(40.dp)) }
         }
-
-        // ════════ النوافذ المنبثقة السفلية (Bottom Sheets) ════════
 
         if (showThemeSheet) {
             SelectionBottomSheet(
@@ -275,64 +257,28 @@ fun SettingsScreen(
         }
 
         if (showSourceLangSheet) {
-            SelectionBottomSheet(
-                title = "لغة المصدر الافتراضية",
-                options = listOf("de" to "🇩🇪 ألماني", "ar" to "🇸🇦 عربي", "auto" to "🤖 تلقائي"),
-                selectedValue = sourceLang,
-                onSelect = { sourceLang = it },
-                onDismiss = { showSourceLangSheet = false }
-            )
+            SelectionBottomSheet("لغة المصدر الافتراضية", listOf("de" to "🇩🇪 ألماني", "ar" to "🇸🇦 عربي", "auto" to "🤖 تلقائي"), sourceLang, { sourceLang = it }, { showSourceLangSheet = false })
         }
-
         if (showTargetLangSheet) {
-            SelectionBottomSheet(
-                title = "لغة الترجمة الفرعية",
-                options = listOf("ar" to "🇸🇦 عربي", "de" to "🇩🇪 ألماني", "en" to "🇬🇧 إنجليزي"),
-                selectedValue = targetLang,
-                onSelect = { targetLang = it },
-                onDismiss = { showTargetLangSheet = false }
-            )
+            SelectionBottomSheet("لغة الترجمة الفرعية", listOf("ar" to "🇸🇦 عربي", "de" to "🇩🇪 ألماني", "en" to "🇬🇧 إنجليزي"), targetLang, { targetLang = it }, { showTargetLangSheet = false })
         }
-
         if (showVoiceSheet) {
-            SelectionBottomSheet(
-                title = "صوت القارئ الافتراضي",
-                options = listOf("female" to "أنثى (افتراضي)", "male" to "ذكر"),
-                selectedValue = voice,
-                onSelect = { voice = it },
-                onDismiss = { showVoiceSheet = false }
-            )
+            SelectionBottomSheet("صوت القارئ الافتراضي", listOf("female" to "أنثى (افتراضي)", "male" to "ذكر"), voice, { voice = it }, { showVoiceSheet = false })
         }
-
         if (showScrollSheet) {
-            SelectionBottomSheet(
-                title = "اتجاه التمرير",
-                options = listOf("vertical" to "↕ رأسي", "horizontal" to "↔ أفقي"),
-                selectedValue = scrollDirection,
-                onSelect = { scrollDirection = it },
-                onDismiss = { showScrollSheet = false }
-            )
+            SelectionBottomSheet("اتجاه التمرير", listOf("vertical" to "↕ رأسي", "horizontal" to "↔ أفقي"), scrollDirection, { scrollDirection = it }, { showScrollSheet = false })
         }
-
         if (showPdfModeSheet) {
-            SelectionBottomSheet(
-                title = "وضع صفحات PDF",
-                options = listOf("continuous" to "متواصل (Continuous)", "single" to "صفحة بصفحة", "book" to "وضع كتاب"),
-                selectedValue = pdfMode,
-                onSelect = { pdfMode = it },
-                onDismiss = { showPdfModeSheet = false }
-            )
+            SelectionBottomSheet("وضع صفحات PDF", listOf("continuous" to "متواصل (Continuous)", "single" to "صفحة بصفحة", "book" to "وضع كتاب"), pdfMode, { pdfMode = it }, { showPdfModeSheet = false })
         }
     }
 }
-
-// ════════ مكونات الواجهة المساعدة (UI Components) ════════
 
 @Composable
 fun SettingsSectionHeader(title: String) {
     Text(
         title,
-        color = AccentBlue,
+        color = MaterialTheme.colorScheme.primary,
         fontWeight = FontWeight.Bold,
         fontSize = 13.sp,
         modifier = Modifier.padding(top = 12.dp, bottom = 4.dp, start = 8.dp)
@@ -342,76 +288,56 @@ fun SettingsSectionHeader(title: String) {
 @Composable
 fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = DarkCard),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(14.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(Modifier.padding(16.dp), content = content)
     }
 }
 
-// المكون الجديد لعرض الخيار القابل للضغط (لفتح النافذة المنبثقة)
 @Composable
-fun SettingsSelectionRow(
-    label: String,
-    selectedValueDisplay: String,
-    onClick: () -> Unit
-) {
+fun SettingsSelectionRow(label: String, selectedValueDisplay: String, onClick: () -> Unit) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(vertical = 8.dp),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 8.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column {
-            Text(label, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+            Text(label, color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp, fontWeight = FontWeight.Medium)
             Spacer(Modifier.height(4.dp))
-            Text(selectedValueDisplay, color = AccentBlue, fontSize = 13.sp)
+            Text(selectedValueDisplay, color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
         }
-        Icon(Icons.Default.KeyboardArrowDown, contentDescription = "تغيير الخيار", tint = TextMuted)
+        Icon(Icons.Default.KeyboardArrowDown, contentDescription = "تغيير الخيار", tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
 @Composable
-fun SettingsSwitchRow(
-    label: String,
-    description: String,
-    icon: ImageVector,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
-) {
+fun SettingsSwitchRow(label: String, description: String, icon: ImageVector, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, null, tint = TextMuted, modifier = Modifier.size(22.dp))
+        Icon(icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(label, color = Color.White, fontSize = 14.sp)
-            Text(description, color = TextMuted, fontSize = 11.sp)
+            Text(label, color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
+            Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
         }
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = AccentBlue)
+            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = MaterialTheme.colorScheme.primary)
         )
     }
 }
 
 @Composable
-fun PermissionSettingRow(
-    label: String,
-    description: String,
-    icon: ImageVector,
-    isGranted: Boolean,
-    onGrant: () -> Unit
-) {
+fun PermissionSettingRow(label: String, description: String, icon: ImageVector, isGranted: Boolean, onGrant: () -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, tint = if (isGranted) SuccessGreen else ErrorRed, modifier = Modifier.size(22.dp))
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(label, color = Color.White, fontSize = 14.sp)
-            Text(description, color = TextMuted, fontSize = 11.sp)
+            Text(label, color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
+            Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
         }
         if (!isGranted) {
             TextButton(onClick = onGrant) {
@@ -423,53 +349,41 @@ fun PermissionSettingRow(
     }
 }
 
-// ════════ النافذة المنبثقة الذكية (Generic Bottom Sheet) ════════
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun <T> SelectionBottomSheet(
-    title: String,
-    options: List<Pair<T, String>>,
-    selectedValue: T,
-    onSelect: (T) -> Unit,
-    onDismiss: () -> Unit
-) {
+fun <T> SelectionBottomSheet(title: String, options: List<Pair<T, String>>, selectedValue: T, onSelect: (T) -> Unit, onDismiss: () -> Unit) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = DarkCard,
-        dragHandle = { BottomSheetDefaults.DragHandle(color = Color.Gray) }
+        containerColor = MaterialTheme.colorScheme.surface,
+        dragHandle = { BottomSheetDefaults.DragHandle(color = MaterialTheme.colorScheme.onSurfaceVariant) }
     ) {
         Column(modifier = Modifier.padding(bottom = 32.dp)) {
             Text(
                 text = title,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onSurface,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)
             )
-            
             options.forEach { (item, display) ->
                 val isSelected = item == selectedValue
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable {
-                            onSelect(item)
-                            onDismiss() // إغلاق النافذة تلقائياً بعد الاختيار
-                        }
-                        .background(if (isSelected) AccentBlue.copy(alpha = 0.15f) else Color.Transparent)
+                        .clickable { onSelect(item); onDismiss() }
+                        .background(if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.Transparent)
                         .padding(horizontal = 24.dp, vertical = 16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
                         text = display,
-                        color = if (isSelected) AccentBlue else Color.White,
+                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                         fontSize = 16.sp
                     )
                     if (isSelected) {
-                        Icon(Icons.Default.Check, contentDescription = "تم الاختيار", tint = AccentBlue)
+                        Icon(Icons.Default.Check, contentDescription = "تم الاختيار", tint = MaterialTheme.colorScheme.primary)
                     }
                 }
             }
