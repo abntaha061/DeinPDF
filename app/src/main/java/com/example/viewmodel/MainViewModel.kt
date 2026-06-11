@@ -534,6 +534,250 @@ class MainViewModel(
         }
     }
 
+    // State للأدوات الجديدة
+    private val _rotateUri = MutableStateFlow<Uri?>(null)
+    val rotateUri: StateFlow<Uri?> = _rotateUri.asStateFlow()
+
+    private val _removeUri = MutableStateFlow<Uri?>(null)
+    val removeUri: StateFlow<Uri?> = _removeUri.asStateFlow()
+
+    private val _removeTotalPages = MutableStateFlow(0)
+    val removeTotalPages: StateFlow<Int> = _removeTotalPages.asStateFlow()
+
+    private val _watermarkUri = MutableStateFlow<Uri?>(null)
+    val watermarkUri: StateFlow<Uri?> = _watermarkUri.asStateFlow()
+
+    private val _pageNumberUri = MutableStateFlow<Uri?>(null)
+    val pageNumberUri: StateFlow<Uri?> = _pageNumberUri.asStateFlow()
+
+    fun loadPdfForRotate(uri: Uri) { _rotateUri.value = uri }
+    fun clearRotateData() { _rotateUri.value = null }
+
+    fun loadPdfForRemovePages(uri: Uri, context: Context) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val pfd = context.contentResolver.openFileDescriptor(uri, "r")!!
+                val renderer = android.graphics.pdf.PdfRenderer(pfd)
+                _removeTotalPages.value = renderer.pageCount
+                renderer.close(); pfd.close()
+                _removeUri.value = uri
+            } catch (e: Exception) {
+                _errorMessage.value = "خطأ في فتح الملف: ${e.message}"
+            }
+        }
+    }
+
+    fun clearRemoveData() { _removeUri.value = null; _removeTotalPages.value = 0 }
+    fun loadPdfForWatermark(uri: Uri) { _watermarkUri.value = uri }
+    fun clearWatermarkData() { _watermarkUri.value = null }
+    fun loadPdfForPageNumbers(uri: Uri) { _pageNumberUri.value = uri }
+    fun clearPageNumberData() { _pageNumberUri.value = null }
+
+    fun rotatePages(inputUri: Uri, rotation: Int, context: Context) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _isLoading.value = true
+            _progress.value = 0f
+            try {
+                val outDir = File(
+                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "PDFReader"
+                ).also { it.mkdirs() }
+                val outFile = File(outDir, "rotated_${System.currentTimeMillis()}.pdf")
+                val pfd = context.contentResolver.openFileDescriptor(inputUri, "r")!!
+                val renderer = android.graphics.pdf.PdfRenderer(pfd)
+                val doc = android.graphics.pdf.PdfDocument()
+                val pageCount = renderer.pageCount
+                for (i in 0 until pageCount) {
+                    _progress.value = i.toFloat() / pageCount
+                    val page = renderer.openPage(i)
+                    val bitmap = Bitmap.createBitmap(page.width, page.height, Bitmap.Config.ARGB_8888)
+                    bitmap.eraseColor(android.graphics.Color.WHITE)
+                    page.render(bitmap, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
+                    page.close()
+                    val matrix = android.graphics.Matrix()
+                    matrix.postRotate(rotation.toFloat(), bitmap.width / 2f, bitmap.height / 2f)
+                    val rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+                    bitmap.recycle()
+                    val pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(rotated.width, rotated.height, i + 1).create()
+                    val docPage = doc.startPage(pageInfo)
+                    docPage.canvas.drawBitmap(rotated, 0f, 0f, null)
+                    doc.finishPage(docPage)
+                    rotated.recycle()
+                }
+                renderer.close(); pfd.close()
+                _progress.value = 0.95f
+                FileOutputStream(outFile).use { doc.writeTo(it) }
+                doc.close()
+                _progress.value = 1f
+                android.media.MediaScannerConnection.scanFile(context, arrayOf(outFile.absolutePath), null, null)
+                repository.addFile(Uri.fromFile(outFile))
+                withContext(Dispatchers.Main) {
+                    _successMessage.value = "✅ تم تدوير $pageCount صفحة بزاوية ${rotation}°\n📂 محفوظ في: Download/PDFReader/\n✨ تم إضافته إلى مكتبتك!"
+                    _showSuccess.value = true
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) { _errorMessage.value = "فشل التدوير: ${e.message}" }
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    fun removePages(inputUri: Uri, pagesToRemove: List<Int>, context: Context) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _isLoading.value = true
+            _progress.value = 0f
+            try {
+                val outDir = File(
+                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "PDFReader"
+                ).also { it.mkdirs() }
+                val outFile = File(outDir, "removed_pages_${System.currentTimeMillis()}.pdf")
+                val pfd = context.contentResolver.openFileDescriptor(inputUri, "r")!!
+                val renderer = android.graphics.pdf.PdfRenderer(pfd)
+                val doc = android.graphics.pdf.PdfDocument()
+                val pageCount = renderer.pageCount
+                var newPageNum = 1
+                for (i in 0 until pageCount) {
+                    _progress.value = i.toFloat() / pageCount
+                    if ((i + 1) in pagesToRemove) continue
+                    val page = renderer.openPage(i)
+                    val bitmap = Bitmap.createBitmap(page.width, page.height, Bitmap.Config.ARGB_8888)
+                    bitmap.eraseColor(android.graphics.Color.WHITE)
+                    page.render(bitmap, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
+                    page.close()
+                    val pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(bitmap.width, bitmap.height, newPageNum++).create()
+                    val docPage = doc.startPage(pageInfo)
+                    docPage.canvas.drawBitmap(bitmap, 0f, 0f, null)
+                    doc.finishPage(docPage)
+                    bitmap.recycle()
+                }
+                renderer.close(); pfd.close()
+                _progress.value = 0.95f
+                FileOutputStream(outFile).use { doc.writeTo(it) }
+                doc.close()
+                _progress.value = 1f
+                android.media.MediaScannerConnection.scanFile(context, arrayOf(outFile.absolutePath), null, null)
+                repository.addFile(Uri.fromFile(outFile))
+                withContext(Dispatchers.Main) {
+                    _successMessage.value = "✅ تم حذف ${pagesToRemove.size} صفحة!\n📄 الصفحات المتبقية: ${pageCount - pagesToRemove.size}\n📂 محفوظ في: Download/PDFReader/"
+                    _showSuccess.value = true
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) { _errorMessage.value = "فشل حذف الصفحات: ${e.message}" }
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    fun addWatermark(inputUri: Uri, watermarkText: String, context: Context) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _isLoading.value = true
+            _progress.value = 0f
+            try {
+                val outDir = File(
+                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "PDFReader"
+                ).also { it.mkdirs() }
+                val outFile = File(outDir, "watermarked_${System.currentTimeMillis()}.pdf")
+                val pfd = context.contentResolver.openFileDescriptor(inputUri, "r")!!
+                val renderer = android.graphics.pdf.PdfRenderer(pfd)
+                val doc = android.graphics.pdf.PdfDocument()
+                val pageCount = renderer.pageCount
+                val paint = android.graphics.Paint().apply {
+                    color = android.graphics.Color.argb(80, 128, 128, 128)
+                    textSize = 60f
+                    isAntiAlias = true
+                }
+                for (i in 0 until pageCount) {
+                    _progress.value = i.toFloat() / pageCount
+                    val page = renderer.openPage(i)
+                    val bitmap = Bitmap.createBitmap(page.width, page.height, Bitmap.Config.ARGB_8888)
+                    bitmap.eraseColor(android.graphics.Color.WHITE)
+                    page.render(bitmap, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
+                    page.close()
+                    val canvas = android.graphics.Canvas(bitmap)
+                    canvas.save()
+                    canvas.rotate(-45f, bitmap.width / 2f, bitmap.height / 2f)
+                    val textWidth = paint.measureText(watermarkText)
+                    canvas.drawText(watermarkText, (bitmap.width - textWidth) / 2f, bitmap.height / 2f, paint)
+                    canvas.restore()
+                    val pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(bitmap.width, bitmap.height, i + 1).create()
+                    val docPage = doc.startPage(pageInfo)
+                    docPage.canvas.drawBitmap(bitmap, 0f, 0f, null)
+                    doc.finishPage(docPage)
+                    bitmap.recycle()
+                }
+                renderer.close(); pfd.close()
+                _progress.value = 0.95f
+                FileOutputStream(outFile).use { doc.writeTo(it) }
+                doc.close()
+                _progress.value = 1f
+                android.media.MediaScannerConnection.scanFile(context, arrayOf(outFile.absolutePath), null, null)
+                repository.addFile(Uri.fromFile(outFile))
+                withContext(Dispatchers.Main) {
+                    _successMessage.value = "✅ تمت إضافة العلامة المائية على $pageCount صفحة!\n📂 محفوظ في: Download/PDFReader/"
+                    _showSuccess.value = true
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) { _errorMessage.value = "فشل إضافة العلامة المائية: ${e.message}" }
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    fun addPageNumbers(inputUri: Uri, context: Context) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _isLoading.value = true
+            _progress.value = 0f
+            try {
+                val outDir = File(
+                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "PDFReader"
+                ).also { it.mkdirs() }
+                val outFile = File(outDir, "numbered_${System.currentTimeMillis()}.pdf")
+                val pfd = context.contentResolver.openFileDescriptor(inputUri, "r")!!
+                val renderer = android.graphics.pdf.PdfRenderer(pfd)
+                val doc = android.graphics.pdf.PdfDocument()
+                val pageCount = renderer.pageCount
+                val paint = android.graphics.Paint().apply {
+                    color = android.graphics.Color.BLACK
+                    textSize = 32f
+                    isAntiAlias = true
+                    textAlign = android.graphics.Paint.Align.CENTER
+                }
+                for (i in 0 until pageCount) {
+                    _progress.value = i.toFloat() / pageCount
+                    val page = renderer.openPage(i)
+                    val bitmap = Bitmap.createBitmap(page.width, page.height, Bitmap.Config.ARGB_8888)
+                    bitmap.eraseColor(android.graphics.Color.WHITE)
+                    page.render(bitmap, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
+                    page.close()
+                    val canvas = android.graphics.Canvas(bitmap)
+                    canvas.drawText("${i + 1}", bitmap.width / 2f, bitmap.height - 40f, paint)
+                    val pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(bitmap.width, bitmap.height, i + 1).create()
+                    val docPage = doc.startPage(pageInfo)
+                    docPage.canvas.drawBitmap(bitmap, 0f, 0f, null)
+                    doc.finishPage(docPage)
+                    bitmap.recycle()
+                }
+                renderer.close(); pfd.close()
+                _progress.value = 0.95f
+                FileOutputStream(outFile).use { doc.writeTo(it) }
+                doc.close()
+                _progress.value = 1f
+                android.media.MediaScannerConnection.scanFile(context, arrayOf(outFile.absolutePath), null, null)
+                repository.addFile(Uri.fromFile(outFile))
+                withContext(Dispatchers.Main) {
+                    _successMessage.value = "✅ تمت إضافة أرقام الصفحات على $pageCount صفحة!\n📂 محفوظ في: Download/PDFReader/"
+                    _showSuccess.value = true
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) { _errorMessage.value = "فشل إضافة الأرقام: ${e.message}" }
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
     private fun loadRecentFiles() {
         viewModelScope.launch {
             repository.getAllPdfFiles().collect { files ->
