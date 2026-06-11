@@ -1,7 +1,8 @@
 package com.example.ui.library
 
 import android.net.Uri
-import androidx.compose.foundation.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.lazy.grid.*
@@ -16,8 +17,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.PdfFile
 import com.example.ui.components.SearchBar
-import com.example.ui.home.*
-import com.example.ui.theme.*
+import com.example.ui.home.PdfGridCard
+import com.example.ui.home.PdfListItem
+import com.example.ui.home.ViewMode
 import com.example.viewmodel.MainViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -79,11 +81,7 @@ fun LibraryScreen(
                             IconButton(onClick = { showSortMenu = true }) {
                                 Icon(Icons.Default.Sort, null, tint = MaterialTheme.colorScheme.onBackground)
                             }
-                            DropdownMenu(
-                                expanded = showSortMenu, 
-                                onDismissRequest = { showSortMenu = false },
-                                modifier = Modifier.background(MaterialTheme.colorScheme.surface)
-                            ) {
+                            DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }, modifier = Modifier.background(MaterialTheme.colorScheme.surface)) {
                                 Text("ترتيب حسب", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
                                 HorizontalDivider(color = MaterialTheme.colorScheme.outline)
                                 SortMode.values().forEach { mode ->
@@ -91,8 +89,7 @@ fun LibraryScreen(
                                         text = { Text(mode.label, color = MaterialTheme.colorScheme.onSurface) },
                                         onClick = { sortMode = mode; showSortMenu = false },
                                         leadingIcon = {
-                                            if (sortMode == mode)
-                                                Icon(Icons.Default.Check, null, tint = MaterialTheme.colorScheme.primary)
+                                            if (sortMode == mode) Icon(Icons.Default.Check, null, tint = MaterialTheme.colorScheme.primary)
                                         }
                                     )
                                 }
@@ -195,4 +192,11 @@ fun LibraryStats(files: List<PdfFile>) {
         val avgProgress = if (files.isEmpty()) 0f else files.map { it.readProgress }.average().toFloat()
         Text("التقدم: ${(avgProgress * 100).toInt()}%", color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
     }
+}
+
+enum class SortMode(val label: String) {
+    DATE("حسب الأحدث"),
+    NAME("حسب الاسم أبجدياً"),
+    SIZE("حسب الحجم الأكبر"),
+    PROGRESS("حسب نسبة التقدم")
 }
