@@ -47,7 +47,6 @@ fun HomeScreen(
     val searchResults by viewModel.searchResults.collectAsState()
     val homeState by viewModel.homeState.collectAsState()
 
-    var selectedTab by remember { mutableStateOf(0) }
     var viewMode by remember { mutableStateOf(ViewMode.GRID) }
 
     LaunchedEffect(homeState.scanMessage) {
@@ -173,70 +172,6 @@ fun HomeScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-            }
-        },
-        bottomBar = {
-            NavigationBar(
-                containerColor = DarkSurface,
-                contentColor = AccentBlue
-            ) {
-                NavigationBarItem(
-                    selected = selectedTab == 0,
-                    onClick = { selectedTab = 0 },
-                    icon = { Icon(Icons.Default.Home, null) },
-                    label = { Text("الرئيسية") },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = AccentBlue,
-                        unselectedIconColor = TextMuted,
-                        selectedTextColor = AccentBlue,
-                        unselectedTextColor = TextMuted
-                    )
-                )
-                NavigationBarItem(
-                    selected = selectedTab == 1,
-                    onClick = {
-                        selectedTab = 1
-                        onNavigateToLibrary()
-                    },
-                    icon = { Icon(Icons.Default.Folder, null) },
-                    label = { Text("المكتبة") },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = AccentBlue,
-                        unselectedIconColor = TextMuted,
-                        selectedTextColor = AccentBlue,
-                        unselectedTextColor = TextMuted
-                    )
-                )
-                NavigationBarItem(
-                    selected = selectedTab == 2,
-                    onClick = {
-                        selectedTab = 2
-                        onNavigateToBookmarks()
-                    },
-                    icon = { Icon(Icons.Default.Bookmark, null) },
-                    label = { Text("الإشارات") },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = AccentBlue,
-                        unselectedIconColor = TextMuted,
-                        selectedTextColor = AccentBlue,
-                        unselectedTextColor = TextMuted
-                    )
-                )
-                NavigationBarItem(
-                    selected = selectedTab == 3,
-                    onClick = {
-                        selectedTab = 3
-                        onNavigateToVocabulary()
-                    },
-                    icon = { Icon(Icons.Default.Translate, null) },
-                    label = { Text("المفردات") },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = AccentBlue,
-                        unselectedIconColor = TextMuted,
-                        selectedTextColor = AccentBlue,
-                        unselectedTextColor = TextMuted
-                    )
                 )
             }
         },
