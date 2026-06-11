@@ -1,6 +1,9 @@
 package com.example.ui.navigation
 
 import android.net.Uri
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -45,14 +48,12 @@ sealed class Screen(val route: String) {
     }
 }
 
-// 1. تبسيط عنصر التنقل وإزالة خاصية isFab
 data class BottomNavItem(
     val label: String,
     val icon: ImageVector,
     val route: String
 )
 
-// 2. ترتيب العناصر لتطابق التصميم القياسي (من اليمين لليسار في التطبيقات العربية)
 val bottomNavItems = listOf(
     BottomNavItem("Home", Icons.Default.Home, Screen.Home.route),
     BottomNavItem("Folders", Icons.Default.Folder, Screen.Library.route),
@@ -86,10 +87,15 @@ fun AppNavigation(
             }
         }
     ) { paddingValues ->
+        // إضافة الأنيميشن (التلاشي الناعم) عند التنقل بين الشاشات هنا 👇
         NavHost(
             navController = navController,
             startDestination = startDestination,
-            modifier = Modifier.padding(paddingValues)
+            modifier = Modifier.padding(paddingValues),
+            enterTransition = { fadeIn(animationSpec = tween(300)) },
+            exitTransition = { fadeOut(animationSpec = tween(300)) },
+            popEnterTransition = { fadeIn(animationSpec = tween(300)) },
+            popExitTransition = { fadeOut(animationSpec = tween(300)) }
         ) {
 
             composable(Screen.Onboarding.route) {
@@ -203,16 +209,15 @@ fun AppNavigation(
     }
 }
 
-// 3. تصميم الشريط السفلي الجديد والمطابق لتطبيق PDF Reader Pro
 @Composable
 fun AppBottomBar(
     currentRoute: String?,
     navController: NavController
 ) {
     NavigationBar(
-        containerColor = Color(0xFF151515), // لون خلفية داكن جداً يطابق المنافس
+        containerColor = Color(0xFF151515), 
         contentColor = Color.Gray,
-        tonalElevation = 0.dp // لإزالة أي ظل إضافي وجعله مسطحاً
+        tonalElevation = 0.dp
     ) {
         bottomNavItems.forEach { item ->
             val isSelected = currentRoute == item.route
@@ -221,7 +226,6 @@ fun AppBottomBar(
                 onClick = {
                     if (currentRoute != item.route) {
                         navController.navigate(item.route) {
-                            // العودة للشاشة الرئيسية بدلاً من تراكم الشاشات
                             popUpTo(Screen.Home.route) { saveState = true }
                             launchSingleTop = true
                             restoreState = true
@@ -243,13 +247,12 @@ fun AppBottomBar(
                     )
                 },
                 colors = NavigationBarItemDefaults.colors(
-                    // لون العنصر النشط (بنفسجي يشبه تطبيق المنافس)
                     selectedIconColor = Color(0xFF8B5CF6), 
                     selectedTextColor = Color(0xFF8B5CF6),
                     unselectedIconColor = Color.Gray,
                     unselectedTextColor = Color.Gray,
-                    // جعل لون خلفية الأيقونة النشطة شفافاً لتصميم أنظف (بدون الشكل البيضاوي)
-                    indicatorColor = Color.Transparent 
+                    // تفعيل الأنيميشن الجميل للخلفية عن طريق إعطائها لون شفاف بنسبة 20% 👇
+                    indicatorColor = Color(0xFF8B5CF6).copy(alpha = 0.2f) 
                 )
             )
         }
