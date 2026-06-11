@@ -34,25 +34,25 @@ fun SearchBar(
         value = query,
         onValueChange = onQueryChange,
         modifier = modifier.heightIn(min = 48.dp),
-        placeholder = { Text(placeholder, color = TextMuted) },
-        leadingIcon = { Icon(Icons.Default.Search, null, tint = TextMuted) },
+        placeholder = { Text(placeholder, color = MaterialTheme.colorScheme.onSurfaceVariant) },
+        leadingIcon = { Icon(Icons.Default.Search, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
         trailingIcon = {
             if (query.isNotBlank()) {
                 IconButton(onClick = { onQueryChange("") }, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.Default.Close, null, tint = TextMuted)
+                    Icon(Icons.Default.Close, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         },
         singleLine = true,
         shape = RoundedCornerShape(14.dp),
         colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = AccentBlue,
-            unfocusedBorderColor = DarkBorder,
-            focusedContainerColor = DarkCard,
-            unfocusedContainerColor = DarkCard,
-            cursorColor = AccentBlue,
-            focusedTextColor = Color.White,
-            unfocusedTextColor = Color.White
+            focusedBorderColor = MaterialTheme.colorScheme.primary,
+            unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+            focusedContainerColor = MaterialTheme.colorScheme.surface,
+            unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+            cursorColor = MaterialTheme.colorScheme.primary,
+            focusedTextColor = MaterialTheme.colorScheme.onSurface,
+            unfocusedTextColor = MaterialTheme.colorScheme.onSurface
         )
     )
 }
@@ -72,14 +72,14 @@ fun LoadingOverlay(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(0.7f)),
+                .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.7f)),
             contentAlignment = Alignment.Center
         ) {
             Card(
-                colors = CardDefaults.cardColors(containerColor = DarkCard),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 shape = RoundedCornerShape(20.dp),
                 modifier = Modifier.padding(32.dp),
-                border = BorderStroke(1.dp, DarkBorder)
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
             ) {
                 Column(
                     Modifier.padding(32.dp),
@@ -89,15 +89,15 @@ fun LoadingOverlay(
                     if (progress != null) {
                         CircularProgressIndicator(
                             progress = { progress },
-                            color = AccentBlue,
+                            color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(56.dp),
                             strokeWidth = 5.dp
                         )
-                        Text("${(progress * 100).toInt()}%", color = AccentBlue, fontWeight = FontWeight.Bold)
+                        Text("${(progress * 100).toInt()}%", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                     } else {
-                        CircularProgressIndicator(color = AccentBlue, modifier = Modifier.size(56.dp))
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary, modifier = Modifier.size(56.dp))
                     }
-                    Text(message, color = Color.White, fontSize = 15.sp, textAlign = TextAlign.Center)
+                    Text(message, color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp, textAlign = TextAlign.Center)
                 }
             }
         }
@@ -117,62 +117,25 @@ fun ConfirmDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = DarkCard,
+        containerColor = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(18.dp),
-        title = { Text(title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp) },
-        text = { Text(message, color = TextMuted, lineHeight = 22.sp, fontSize = 14.sp) },
+        title = { Text(title, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, fontSize = 18.sp) },
+        text = { Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 22.sp, fontSize = 14.sp) },
         confirmButton = {
             Button(
                 onClick = { onConfirm(); onDismiss() },
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isDestructive) ErrorRed else AccentBlue
+                    containerColor = if (isDestructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
                 ),
                 shape = RoundedCornerShape(10.dp)
             ) { Text(confirmText) }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text(cancelText, color = TextMuted)
+                Text(cancelText, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     )
-}
-
-// ===== Color Picker Row =====
-@Composable
-fun ColorPickerRow(
-    selectedColor: Color,
-    onColorSelected: (Color) -> Unit
-) {
-    val colors = listOf(
-        Color(0xFFFBBF24), // Yellow
-        Color(0xFF4ADE80), // Green
-        Color(0xFF60A5FA), // Blue
-        Color(0xFFF472B6), // Pink
-        Color(0xFFFF8C00), // Orange
-        Color(0xFFEF4444), // Red
-        Color(0xFF8B5CF6), // Purple
-        Color(0xFF06B6D4)  // Cyan
-    )
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-        horizontalArrangement = Arrangement.SpaceEvenly
-    ) {
-        colors.forEach { color ->
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(color)
-                    .border(
-                        if (selectedColor == color) BorderStroke(3.dp, Color.White)
-                        else BorderStroke(0.dp, Color.Transparent),
-                        RoundedCornerShape(18.dp)
-                    )
-                    .clickable { onColorSelected(color) }
-            )
-        }
-    }
 }
 
 // ===== Info Row =====
@@ -181,7 +144,7 @@ fun InfoRow(
     icon: ImageVector,
     label: String,
     value: String,
-    iconTint: Color = TextMuted
+    iconTint: Color = MaterialTheme.colorScheme.onSurfaceVariant
 ) {
     Row(
         Modifier
@@ -191,8 +154,8 @@ fun InfoRow(
     ) {
         Icon(icon, null, tint = iconTint, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(10.dp))
-        Text(label, color = TextMuted, fontSize = 13.sp, modifier = Modifier.weight(1f))
-        Text(value, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, modifier = Modifier.weight(1f))
+        Text(value, color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -205,15 +168,15 @@ fun SectionDivider(title: String = "") {
             .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        HorizontalDivider(modifier = Modifier.weight(1f), color = DarkBorder)
+        HorizontalDivider(modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.outline)
         if (title.isNotBlank()) {
             Text(
                 title,
-                color = TextMuted,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 12.sp,
                 modifier = Modifier.padding(horizontal = 12.dp)
             )
-            HorizontalDivider(modifier = Modifier.weight(1f), color = DarkBorder)
+            HorizontalDivider(modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.outline)
         }
     }
 }
@@ -235,13 +198,13 @@ fun EmptyStateView(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text(emoji, fontSize = 64.sp)
-        Text(title, fontWeight = FontWeight.Bold, color = Color.White, fontSize = 18.sp, textAlign = TextAlign.Center)
-        Text(subtitle, color = TextMuted, fontSize = 14.sp, textAlign = TextAlign.Center)
+        Text(title, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, fontSize = 18.sp, textAlign = TextAlign.Center)
+        Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp, textAlign = TextAlign.Center)
         if (actionLabel != null && onAction != null) {
             Spacer(Modifier.height(4.dp))
             Button(
                 onClick = onAction,
-                colors = ButtonDefaults.buttonColors(containerColor = AccentBlue),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.heightIn(min = 48.dp)
             ) {
@@ -268,7 +231,7 @@ fun FileInfoSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = DarkCard
+        containerColor = MaterialTheme.colorScheme.surface
     ) {
         Column(
             Modifier
@@ -276,18 +239,18 @@ fun FileInfoSheet(
                 .padding(20.dp)
                 .navigationBarsPadding()
         ) {
-            Text("معلومات الملف", fontWeight = FontWeight.Black, color = Color.White, fontSize = 18.sp)
+            Text("معلومات الملف", fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface, fontSize = 18.sp)
             Spacer(Modifier.height(16.dp))
-            InfoRow(Icons.Default.Description, "اسم الملف", fileName, AccentBlue)
-            HorizontalDivider(color = DarkBorder, modifier = Modifier.padding(vertical = 4.dp))
-            InfoRow(Icons.Default.Storage, "الحجم", formatSize(fileSize), AccentPurple)
-            HorizontalDivider(color = DarkBorder, modifier = Modifier.padding(vertical = 4.dp))
+            InfoRow(Icons.Default.Description, "اسم الملف", fileName, MaterialTheme.colorScheme.primary)
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(vertical = 4.dp))
+            InfoRow(Icons.Default.Storage, "الحجم", formatSize(fileSize), MaterialTheme.colorScheme.secondary)
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(vertical = 4.dp))
             InfoRow(Icons.Default.Pages, "عدد الصفحات", "$pageCount صفحة", Gold)
-            HorizontalDivider(color = DarkBorder, modifier = Modifier.padding(vertical = 4.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(vertical = 4.dp))
             InfoRow(Icons.Default.Percent, "التقدم", "${(readProgress * 100).toInt()}%", SuccessGreen)
-            HorizontalDivider(color = DarkBorder, modifier = Modifier.padding(vertical = 4.dp))
-            InfoRow(Icons.Default.AccessTime, "آخر فتح", fmt.format(Date(lastOpened)), TextMuted)
-            Spacer(Modifier.height(20.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(vertical = 4.dp))
+            InfoRow(Icons.Default.AccessTime, "آخر فتح", fmt.format(Date(lastOpened)), MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(modifier = Modifier.height(20.dp))
         }
     }
 }
@@ -296,36 +259,4 @@ private fun formatSize(bytes: Long): String = when {
     bytes < 1024 -> "$bytes B"
     bytes < 1024 * 1024 -> "${bytes / 1024} KB"
     else -> "${"%.1f".format(bytes / 1024.0 / 1024.0)} MB"
-}
-
-// ===== Tag Chip component =====
-@Composable
-fun TagChip(
-    label: String,
-    color: Color = AccentBlue,
-    onRemove: (() -> Unit)? = null
-) {
-    Surface(
-        shape = RoundedCornerShape(20.dp),
-        color = color.copy(0.15f),
-        border = BorderStroke(1.dp, color.copy(0.3f))
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(label, color = color, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-            if (onRemove != null) {
-                Spacer(Modifier.width(4.dp))
-                Icon(
-                    Icons.Default.Close,
-                    null,
-                    tint = color,
-                    modifier = Modifier
-                        .size(16.dp)
-                        .clickable { onRemove() }
-                )
-            }
-        }
-    }
 }
