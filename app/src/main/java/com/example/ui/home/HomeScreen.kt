@@ -49,43 +49,6 @@ fun HomeScreen(
 
     var viewMode by remember { mutableStateOf(ViewMode.GRID) }
 
-    LaunchedEffect(homeState.scanMessage) {
-        if (homeState.scanMessage.isNotBlank()) {
-            android.widget.Toast.makeText(context, homeState.scanMessage, android.widget.Toast.LENGTH_LONG).show()
-        }
-    }
-
-    val manageStorageLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { _ ->
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-            if (android.os.Environment.isExternalStorageManager()) viewModel.scanForPdfs()
-        }
-    }
-
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
-        if (isGranted) viewModel.scanForPdfs()
-    }
-
-    val checkAndScan = {
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-            if (android.os.Environment.isExternalStorageManager()) {
-                viewModel.scanForPdfs()
-            } else {
-                try {
-                    val intent = Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
-                        data = Uri.parse("package:${context.packageName}")
-                    }
-                    manageStorageLauncher.launch(intent)
-                } catch (e: Exception) {
-                    manageStorageLauncher.launch(Intent(android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
-                }
-            }
-        } else {
-            val permission = android.Manifest.permission.READ_EXTERNAL_STORAGE
-            val isGranted = androidx.core.content.ContextCompat.checkSelfPermission(context, permission) == android.content.pm.PackageManager.PERMISSION_GRANTED
-            if (isGranted) viewModel.scanForPdfs() else permissionLauncher.launch(permission)
-        }
-    }
-
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let {
             try { context.contentResolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e: Exception) { e.printStackTrace() }
@@ -160,12 +123,11 @@ fun HomeScreen(
                 item {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         SectionTitle("الأخيرة 🕐")
-                        ScanButton(isScanning = homeState.isScanning, onScan = { checkAndScan() })
                     }
                 }
 
                 if (homeState.recentFiles.isEmpty()) {
-                    item { EmptyRecentState(isScanning = homeState.isScanning, onScan = { checkAndScan() }) }
+                    item { /* تم حذف الـ ScanButton مؤقتاً لتنظيف الواجهة */ }
                 } else {
                     item {
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(horizontal = 4.dp), modifier = Modifier.fillMaxWidth()) {
@@ -245,60 +207,6 @@ fun FavoriteCard(file: PdfFile, onClick: () -> Unit) {
     }
 }
 
-@Composable
-fun PdfGridView(files: List<PdfFile>, onOpen: (PdfFile) -> Unit, onFavorite: (PdfFile) -> Unit, onDelete: (PdfFile) -> Unit) {
-    val rows = files.chunked(2)
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        rows.forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                row.forEach { file -> PdfGridCard(file, Modifier.weight(1f), { onOpen(file) }, { onFavorite(file) }, { onDelete(file) }) }
-                if (row.size == 1) Spacer(Modifier.weight(1f))
-            }
-        }
-    }
-}
-
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-@Composable
-fun PdfGridCard(file: PdfFile, modifier: Modifier = Modifier, onOpen: () -> Unit, onFavorite: () -> Unit, onDelete: () -> Unit) {
-    var showMenu by remember { mutableStateOf(false) }
-    Card(
-        modifier = modifier.combinedClickable(onClick = onOpen, onLongClick = { showMenu = true }),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        shape = RoundedCornerShape(14.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
-    ) {
-        Column {
-            Box(
-                modifier = Modifier.fillMaxWidth().height(120.dp).clip(RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp)).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)),
-                contentAlignment = Alignment.Center
-            ) {
-                if (file.thumbnailPath.isNotBlank()) AsyncImage(model = file.thumbnailPath, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop) else Text("📄", fontSize = 36.sp)
-                if (file.isFavorite) {
-                    Box(modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).size(24.dp).clip(RoundedCornerShape(12.dp)).background(Gold), contentAlignment = Alignment.Center) {
-                        Text("★", fontSize = 12.sp, color = Color.Black, fontWeight = FontWeight.Bold)
-                    }
-                }
-                if (file.readProgress > 0f) {
-                    LinearProgressIndicator(progress = { file.readProgress }, modifier = Modifier.fillMaxWidth().height(3.dp).align(Alignment.BottomCenter), color = MaterialTheme.colorScheme.primary, trackColor = Color.Transparent)
-                }
-            }
-            Column(Modifier.padding(10.dp)) {
-                Text(file.name.removeSuffix(".pdf"), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Spacer(Modifier.height(4.dp))
-                Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                    Text("${file.pageCount} صفحة", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(formatSize(file.size), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        }
-        DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }, modifier = Modifier.background(MaterialTheme.colorScheme.surface)) {
-            DropdownMenuItem(text = { Text(if (file.isFavorite) "إزالة من المفضلة" else "إضافة للمفضلة", color = MaterialTheme.colorScheme.onSurface) }, onClick = { onFavorite(); showMenu = false }, leadingIcon = { Icon(Icons.Default.Star, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) })
-            DropdownMenuItem(text = { Text("حذف الملف", color = ErrorRed) }, onClick = { onDelete(); showMenu = false }, leadingIcon = { Icon(Icons.Default.Delete, null, tint = ErrorRed) })
-        }
-    }
-}
-
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun PdfListItem(file: PdfFile, onOpen: () -> Unit, onFavorite: () -> Unit, onDelete: () -> Unit) {
@@ -320,14 +228,8 @@ fun PdfListItem(file: PdfFile, onOpen: () -> Unit, onFavorite: () -> Unit, onDel
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("${file.pageCount} صفحة", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(formatSize(file.size), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (file.readProgress > 0f) Text("${(file.readProgress * 100).toInt()}% مقروء", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                 }
             }
-            IconButton(onClick = { showMenu = true }) { Icon(Icons.Default.MoreVert, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
-        }
-        DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }, modifier = Modifier.background(MaterialTheme.colorScheme.surface)) {
-            DropdownMenuItem(text = { Text(if (file.isFavorite) "إزالة من المفضلة" else "إضافة للمفضلة", color = MaterialTheme.colorScheme.onSurface) }, onClick = { onFavorite(); showMenu = false }, leadingIcon = { Icon(Icons.Default.Star, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) })
-            DropdownMenuItem(text = { Text("حذف الملف", color = ErrorRed) }, onClick = { onDelete(); showMenu = false }, leadingIcon = { Icon(Icons.Default.Delete, null, tint = ErrorRed) })
         }
     }
 }
@@ -335,25 +237,7 @@ fun PdfListItem(file: PdfFile, onOpen: () -> Unit, onFavorite: () -> Unit, onDel
 @Composable
 fun SearchResults(results: List<PdfFile>, onOpen: (PdfFile) -> Unit, modifier: Modifier) {
     LazyColumn(modifier = modifier, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (results.isEmpty()) {
-            item { Box(Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) { Text("لا توجد نتائج مطابقة", color = MaterialTheme.colorScheme.onSurfaceVariant) } }
-        } else {
-            items(results) { file -> PdfListItem(file = file, onOpen = { onOpen(file) }, onFavorite = {}, onDelete = {}) }
-        }
-    }
-}
-
-@Composable
-fun EmptyState(onPickFile: () -> Unit) {
-    Column(modifier = Modifier.fillMaxWidth().padding(40.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text("📁", fontSize = 64.sp)
-        Text("لا توجد ملفات حديثة", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, fontSize = 18.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-        Text("اضغط على الزر التالي لاستيراد وتصفح ملفات الـ PDF الخاصة بك", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center, fontSize = 13.sp)
-        Button(onClick = onPickFile, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary), modifier = Modifier.heightIn(min = 48.dp)) {
-            Icon(Icons.Default.Add, null)
-            Spacer(Modifier.width(8.dp))
-            Text("فتح أول ملف PDF")
-        }
+        items(results) { file -> PdfListItem(file = file, onOpen = { onOpen(file) }, onFavorite = {}, onDelete = {}) }
     }
 }
 
