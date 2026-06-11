@@ -16,19 +16,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
-// ════════ الألوان الأساسية الخاصة بتطبيقك ════════
-val AccentBlue = Color(0xFF2196F3)
-val AccentPurple = Color(0xFF8B5CF6)
-val SuccessGreen = Color(0xFF4CAF50)
-val ErrorRed = Color(0xFFF44336)
-val Gold = Color(0xFFFFD700)
-val TextMuted = Color(0xFFA0A0A0)
-
-// ألوان الوضع الداكن
-val DarkBackground = Color(0xFF000000) // أسود نقي
-val DarkSurface = Color(0xFF151515)    // رمادي داكن للبطاقات
-val DarkBorder = Color(0xFF2A2A2A)
-
 // ════════ 1. نظام الألوان الداكن (Dark Mode) ════════
 private val DarkColorScheme = darkColorScheme(
     primary = AccentBlue,
@@ -79,7 +66,6 @@ fun MyApplicationTheme(
 
     MaterialTheme(
         colorScheme = colorScheme,
-        // Typography يجب أن تكون معرفة في ملف Type.kt الموجود لديك في نفس المجلد
         typography = Typography, 
         content = content
     )
